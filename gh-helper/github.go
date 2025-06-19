@@ -5,8 +5,8 @@ import (
 	"crypto/tls"
 	"encoding/json" // Still needed for json.RawMessage type
 	"fmt"
+	"log/slog"
 	"net/http"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -185,7 +185,7 @@ func (c *GitHubClient) RunGraphQLQueryWithVariables(query string, variables map[
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", err)
+			slog.Warn("failed to close response body", "url", resp.Request.URL, "error", err)
 		}
 	}()
 
