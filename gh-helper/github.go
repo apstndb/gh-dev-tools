@@ -185,7 +185,7 @@ func (c *GitHubClient) RunGraphQLQueryWithVariables(query string, variables map[
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			slog.Warn("failed to close response body", "url", resp.Request.URL, "error", err)
+			slog.Warn("failed to close response body", "url", resp.Request.URL.String(), "error", err)
 		}
 	}()
 

@@ -101,7 +101,7 @@ This command polls every 30 seconds and waits until BOTH conditions are met:
 Use --exclude-reviews to wait for PR checks only.
 Use --exclude-checks to wait for reviews only.
 Use --request-review to automatically request Gemini review before waiting.
-Use --async to check once and return immediately (replaces 'reviews check').
+Use --async to check reviews once and return immediately (non-blocking).
 
 `+prNumberArgsHelp+`
 
@@ -416,7 +416,7 @@ func performAsyncReviewCheck(client *GitHubClient, prNumber string) error {
 	} else {
 		// Provide more specific error information for non-file-not-found errors
 		if !os.IsNotExist(err) {
-			slog.Warn("failed to load previous review state", "pr", prNumber, "error", err)
+			slog.Info("failed to load previous review state", "pr", prNumber, "error", err)
 		}
 		WarningMsg("No previous state found or state could not be loaded, showing all recent reviews...").Print()
 		fmt.Printf("\n📋 Found %d review(s) total\n", len(data.Reviews))
