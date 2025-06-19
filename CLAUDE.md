@@ -70,7 +70,7 @@ git push origin HEAD  # Explicit push to current branch
 
 ### Review Thread Management
 - **Always resolve review threads** after addressing feedback
-- **CRITICAL: Push commits BEFORE replying to threads** - GitHub needs the commit to exist for proper linking
+- **CRITICAL:** Push commits BEFORE replying to threads - GitHub needs the commit to exist for proper linking
 - **For threads requiring code changes**:
   1. Make the necessary changes and commit
   2. **Push the commit to GitHub first**: `git push origin HEAD`
