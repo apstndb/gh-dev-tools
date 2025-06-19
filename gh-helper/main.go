@@ -416,7 +416,7 @@ func performAsyncReviewCheck(client *GitHubClient, prNumber string) error {
 	} else {
 		// Provide more specific error information for non-file-not-found errors
 		if !os.IsNotExist(err) {
-			slog.Warn("failed to load previous review state", "pr", prNumber, "error", err)
+			slog.Info("failed to load previous review state", "pr", prNumber, "error", err)
 		}
 		WarningMsg("No previous state found or state could not be loaded, showing all recent reviews...").Print()
 		fmt.Printf("\n📋 Found %d review(s) total\n", len(data.Reviews))
