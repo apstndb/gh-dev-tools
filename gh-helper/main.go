@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -92,7 +93,7 @@ var checkReviewsCmd = NewOperationalCommand(
 	"Check for new PR reviews with state tracking",
 	`Check for new pull request reviews, tracking state to identify updates.
 
-This command maintains state in ~/.cache/spanner-mycli-reviews/ to detect
+This command maintains state in .cache/ to detect
 new reviews since the last check. Useful for monitoring PR activity.
 
 `+prNumberArgsHelp,
@@ -134,15 +135,31 @@ AI-FRIENDLY DESIGN (Issue #301): The reply text can be provided via:
 - --resolve to automatically resolve thread after replying
 
 Examples:
+  # Standard response with immediate resolution
   gh-helper threads reply PRRT_kwDONC6gMM5SU-GH --message "Fixed as suggested" --resolve
+  
+  # Reference specific commit that addresses the feedback
   gh-helper threads reply PRRT_kwDONC6gMM5SU-GH --commit-hash abc123 --message "Addressed all feedback" --resolve
-  gh-helper threads reply PRRT_kwDONC6gMM5SU-GH --commit-hash abc123 --resolve  # Uses default message
-  echo "Thank you for the feedback!" | gh-helper threads reply PRRT_kwDONC6gMM5SU-GH
+  
+  # Quick commit reference with default message
+  gh-helper threads reply PRRT_kwDONC6gMM5SU-GH --commit-hash abc123 --resolve
+  
+  # Explain without code changes
+  gh-helper threads reply PRRT_kwDONC6gMM5SU-GH --message "This is intentional behavior for compatibility" --resolve
+  
+  # Multi-line response using stdin
+  echo "Thank you for the feedback!" | gh-helper threads reply PRRT_kwDONC6gMM5SU-GH --resolve
+  
+  # Complex explanation with detailed reasoning
   gh-helper threads reply PRRT_kwDONC6gMM5SU-GH --resolve <<EOF
-  Fixed the issue. The implementation now:
-  - Handles edge cases properly
-  - Includes proper error handling
-  EOF`,
+  After investigating, I've decided not to make this change because:
+  - It would break backward compatibility with existing users
+  - The current behavior is documented and expected
+  - Alternative approach is available via the --legacy-mode flag
+  EOF
+  
+  # Reference current commit hash  
+  gh-helper threads reply PRRT_kwDONC6gMM5SU-GH --commit-hash <HASH> --message "Implemented suggested changes" --resolve`,
 	replyToThread,
 )
 
@@ -280,8 +297,8 @@ type ReviewState struct {
 
 // loadReviewState loads the last known review state from cache
 func loadReviewState(prNumber string) (*ReviewState, error) {
-	stateDir := fmt.Sprintf("%s/.cache/spanner-mycli-reviews", os.Getenv("HOME"))
-	lastReviewFile := fmt.Sprintf("%s/pr-%s-last-review.json", stateDir, prNumber)
+	stateDir := filepath.Join(GetCacheDir(), "reviews")
+	lastReviewFile := filepath.Join(stateDir, fmt.Sprintf("pr-%s-last-review.json", prNumber))
 	
 	data, err := os.ReadFile(lastReviewFile)
 	if err != nil {
@@ -298,8 +315,8 @@ func loadReviewState(prNumber string) (*ReviewState, error) {
 
 // saveReviewState saves the review state to cache
 func saveReviewState(prNumber string, state ReviewState) error {
-	stateDir := fmt.Sprintf("%s/.cache/spanner-mycli-reviews", os.Getenv("HOME"))
-	lastReviewFile := fmt.Sprintf("%s/pr-%s-last-review.json", stateDir, prNumber)
+	stateDir := filepath.Join(GetCacheDir(), "reviews")
+	lastReviewFile := filepath.Join(stateDir, fmt.Sprintf("pr-%s-last-review.json", prNumber))
 	
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
 		return fmt.Errorf("failed to create state directory: %w", err)
@@ -382,7 +399,7 @@ func checkReviews(cmd *cobra.Command, args []string) error {
 	
 	prNumberStr := fmt.Sprintf("%d", prNumberInt)
 
-	stateDir := fmt.Sprintf("%s/.cache/spanner-mycli-reviews", os.Getenv("HOME"))
+	stateDir := filepath.Join(GetCacheDir(), "reviews")
 
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
 		return fmt.Errorf("failed to create state directory: %w", err)

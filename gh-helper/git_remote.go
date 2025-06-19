@@ -193,6 +193,22 @@ func GetCurrentBranch() (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+// GetRepositoryRoot returns the root directory of the git repository
+// 
+// Note: In git worktree environments, this returns the worktree root directory,
+// not the main repository root. This is intentional behavior to ensure each
+// worktree maintains its own isolated cache, enabling independent parallel work
+// on different branches without cache interference.
+func GetRepositoryRoot() (string, error) {
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get repository root: %w", err)
+	}
+	
+	return strings.TrimSpace(string(output)), nil
+}
+
 // GitRemoteConfig holds configuration for git remote detection
 type GitRemoteConfig struct {
 	PreferredRemotes []string // Preferred remote names in order (default: ["origin", "upstream"])

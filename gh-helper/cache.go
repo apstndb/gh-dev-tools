@@ -15,8 +15,7 @@ type WorkflowCache struct {
 
 // NewWorkflowCache creates a new workflow cache instance
 func NewWorkflowCache() *WorkflowCache {
-	homeDir := os.Getenv("HOME")
-	cacheDir := filepath.Join(homeDir, ".cache", "spanner-mycli-dev")
+	cacheDir := GetCacheDir()
 	return &WorkflowCache{CacheDir: cacheDir}
 }
 
@@ -74,6 +73,21 @@ func (c *WorkflowCache) GetBranchPRMapping(branch string) (*BranchPRMapping, err
 	}
 
 	return &mapping, nil
+}
+
+// GetCacheDir returns the cache directory for the current repository
+//
+// In git worktree environments, each worktree gets its own cache directory.
+// This ensures independent caching per worktree, which is desirable for
+// parallel development workflows where different worktrees may be working
+// on different features, branches, or PRs simultaneously.
+func GetCacheDir() string {
+	repoRoot, err := GetRepositoryRoot()
+	if err != nil {
+		// Fallback to current directory if not in git repository
+		repoRoot = "."
+	}
+	return filepath.Join(repoRoot, ".cache")
 }
 
 // GetCurrentBranch is now defined in git_remote.go

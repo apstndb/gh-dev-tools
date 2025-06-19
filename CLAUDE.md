@@ -65,7 +65,31 @@ Example workflow:
 git add path/to/file1.go path/to/file2.go
 git status  # Verify only intended files are staged
 git commit -m "description of changes"
+git push origin HEAD  # Explicit push to current branch
 ```
+
+### Review Thread Management
+- **Always resolve review threads** after addressing feedback
+- **For threads requiring code changes**:
+  1. Make the necessary changes and commit
+  2. Reply with commit hash and resolve: `./bin/gh-helper threads reply <THREAD_ID> --commit-hash <HASH> --message "Fixed as suggested" --resolve`
+- **For threads not requiring changes**:
+  1. Reply with explanation and resolve: `./bin/gh-helper threads reply <THREAD_ID> --message "Explanation here" --resolve`
+- **Batch resolve multiple threads**: `./bin/gh-helper threads resolve <THREAD_ID1> <THREAD_ID2> <THREAD_ID3>`
+
+```bash
+# Example: Address feedback with commit reference
+git commit -m "fix: address review feedback"
+./bin/gh-helper threads reply PRRT_kwDONC6gMM5SU-GH --commit-hash $(git rev-parse HEAD) --message "Fixed as suggested" --resolve
+
+# Example: Reply without code changes
+./bin/gh-helper threads reply PRRT_kwDONC6gMM5SU-GH --message "This is intentional behavior for compatibility" --resolve
+```
+
+### Automated Review Management
+- **Gemini Code Assist**: Provides automatic initial review but requires explicit request for follow-up reviews
+- **Request additional reviews**: Comment `/gemini review` on PR for re-review after significant changes
+- **Initial review only**: After first automated review, no additional reviews come automatically
 
 ## Installation and Usage
 
