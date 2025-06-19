@@ -265,7 +265,7 @@ func init() {
 	waitReviewsCmd.Flags().BoolVar(&requestReview, "request-review", false, "Request Gemini review before waiting")
 
 	// Add subcommands
-	reviewsCmd.AddCommand(checkReviewsCmd, analyzeReviewsCmd, fetchReviewsCmd, waitReviewsCmd)
+	reviewsCmd.AddCommand(checkReviewsCmd, fetchReviewsCmd, waitReviewsCmd)
 	threadsCmd.AddCommand(showThreadCmd, replyThreadsCmd, resolveThreadCmd)
 	rootCmd.AddCommand(reviewsCmd, threadsCmd)
 }
@@ -632,7 +632,7 @@ func waitForReviewsOnly(prNumber string) error {
 			}
 			
 			fmt.Println("\n✅ New reviews available!")
-			fmt.Printf("💡 To list unresolved threads: bin/gh-helper threads list %s\n", prNumber)
+			fmt.Printf("💡 To list unresolved threads: bin/gh-helper reviews fetch %s --list-threads\n", prNumber)
 			fmt.Println("⚠️  IMPORTANT: Please read the review feedback carefully before proceeding")
 			return nil
 		}
@@ -853,7 +853,7 @@ func waitForReviewsAndChecks(cmd *cobra.Command, args []string) error {
 					}
 				}
 				
-				fmt.Printf("\n💡 To list unresolved threads: bin/gh-helper threads list %s\n", prNumber)
+				fmt.Printf("\n💡 To list unresolved threads: bin/gh-helper reviews fetch %s --list-threads\n", prNumber)
 				fmt.Println("⚠️  IMPORTANT: Please read the review feedback carefully before proceeding")
 			}
 			
