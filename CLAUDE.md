@@ -70,9 +70,11 @@ git push origin HEAD  # Explicit push to current branch
 
 ### Review Thread Management
 - **Always resolve review threads** after addressing feedback
+- **CRITICAL: Push commits BEFORE replying to threads** - GitHub needs the commit to exist for proper linking
 - **For threads requiring code changes**:
   1. Make the necessary changes and commit
-  2. Reply with commit hash and resolve: `./bin/gh-helper threads reply <THREAD_ID> --commit-hash <HASH> --message "Fixed as suggested" --resolve`
+  2. **Push the commit to GitHub first**: `git push origin HEAD`
+  3. Reply with commit hash and resolve: `./bin/gh-helper threads reply <THREAD_ID> --commit-hash <HASH> --message "Fixed as suggested" --resolve`
 - **For threads not requiring changes**:
   1. Reply with explanation and resolve: `./bin/gh-helper threads reply <THREAD_ID> --message "Explanation here" --resolve`
 - **Batch resolve multiple threads**: `./bin/gh-helper threads resolve <THREAD_ID1> <THREAD_ID2> <THREAD_ID3>`
