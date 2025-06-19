@@ -65,6 +65,7 @@ Example workflow:
 git add path/to/file1.go path/to/file2.go
 git status  # Verify only intended files are staged
 git commit -m "description of changes"
+git push origin HEAD  # Explicit push to current branch
 ```
 
 ## Installation and Usage
