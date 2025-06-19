@@ -93,6 +93,24 @@ git commit -m "fix: address review feedback"
 - **Request additional reviews**: Comment `/gemini review` on PR for re-review after significant changes
 - **Initial review only**: After first automated review, no additional reviews come automatically
 
+### Pull Request Merging
+- **ALWAYS use Squash and Merge**: Never use regular merge or rebase merge
+- **Merge body content**: In the squash commit body, provide a summary of all changes from the branch HEAD
+- **Format**: Use clear bullet points summarizing what changed
+- **Example workflow**:
+  ```bash
+  # After all reviews are resolved and checks pass
+  gh pr merge <PR> --squash --body "$(cat <<'EOF'
+  Summary of changes:
+  - Removed deprecated reviews check command
+  - Implemented async mode in reviews wait command
+  - Fixed guidance messages to use correct command syntax
+  - Enhanced error logging with slog
+  - Improved documentation in CLAUDE.md
+  EOF
+  )"
+  ```
+
 ## Installation and Usage
 
 ### Development
