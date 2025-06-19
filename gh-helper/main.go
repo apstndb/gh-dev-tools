@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -92,7 +93,7 @@ var checkReviewsCmd = NewOperationalCommand(
 	"Check for new PR reviews with state tracking",
 	`Check for new pull request reviews, tracking state to identify updates.
 
-This command maintains state in ~/.cache/spanner-mycli-reviews/ to detect
+This command maintains state in .cache/ to detect
 new reviews since the last check. Useful for monitoring PR activity.
 
 `+prNumberArgsHelp,
@@ -280,7 +281,7 @@ type ReviewState struct {
 
 // loadReviewState loads the last known review state from cache
 func loadReviewState(prNumber string) (*ReviewState, error) {
-	stateDir := fmt.Sprintf("%s/.cache/spanner-mycli-reviews", os.Getenv("HOME"))
+	stateDir := filepath.Join(GetCacheDir(), "reviews")
 	lastReviewFile := fmt.Sprintf("%s/pr-%s-last-review.json", stateDir, prNumber)
 	
 	data, err := os.ReadFile(lastReviewFile)
@@ -298,7 +299,7 @@ func loadReviewState(prNumber string) (*ReviewState, error) {
 
 // saveReviewState saves the review state to cache
 func saveReviewState(prNumber string, state ReviewState) error {
-	stateDir := fmt.Sprintf("%s/.cache/spanner-mycli-reviews", os.Getenv("HOME"))
+	stateDir := filepath.Join(GetCacheDir(), "reviews")
 	lastReviewFile := fmt.Sprintf("%s/pr-%s-last-review.json", stateDir, prNumber)
 	
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
@@ -382,7 +383,7 @@ func checkReviews(cmd *cobra.Command, args []string) error {
 	
 	prNumberStr := fmt.Sprintf("%d", prNumberInt)
 
-	stateDir := fmt.Sprintf("%s/.cache/spanner-mycli-reviews", os.Getenv("HOME"))
+	stateDir := filepath.Join(GetCacheDir(), "reviews")
 
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
 		return fmt.Errorf("failed to create state directory: %w", err)

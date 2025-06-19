@@ -2,5 +2,8 @@
 /bin/
 /tmp/
 
+# Cache
+/.cache/
+
 # Go artifacts
 *.out
