@@ -81,6 +81,11 @@ func (c *WorkflowCache) GetBranchPRMapping(branch string) (*BranchPRMapping, err
 }
 
 // GetCacheDir returns the cache directory for the current repository
+//
+// In git worktree environments, each worktree gets its own cache directory.
+// This ensures independent caching per worktree, which is desirable for
+// parallel development workflows where different worktrees may be working
+// on different features, branches, or PRs simultaneously.
 func GetCacheDir() string {
 	repoRoot, err := GetRepositoryRoot()
 	if err != nil {
