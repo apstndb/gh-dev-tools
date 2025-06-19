@@ -86,6 +86,11 @@ git commit -m "fix: address review feedback"
 ./bin/gh-helper threads reply PRRT_kwDONC6gMM5SU-GH --message "This is intentional behavior for compatibility" --resolve
 ```
 
+### Automated Review Management
+- **Gemini Code Assist**: Provides automatic initial review but requires explicit request for follow-up reviews
+- **Request additional reviews**: Comment `/gemini review` on PR for re-review after significant changes
+- **Initial review only**: After first automated review, no additional reviews come automatically
+
 ## Installation and Usage
 
 ### Development
