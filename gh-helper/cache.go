@@ -15,12 +15,7 @@ type WorkflowCache struct {
 
 // NewWorkflowCache creates a new workflow cache instance
 func NewWorkflowCache() *WorkflowCache {
-	repoRoot, err := GetRepositoryRoot()
-	if err != nil {
-		// Fallback to current directory if not in git repository
-		repoRoot = "."
-	}
-	cacheDir := filepath.Join(repoRoot, ".cache")
+	cacheDir := GetCacheDir()
 	return &WorkflowCache{CacheDir: cacheDir}
 }
 

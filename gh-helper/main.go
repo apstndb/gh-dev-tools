@@ -282,7 +282,7 @@ type ReviewState struct {
 // loadReviewState loads the last known review state from cache
 func loadReviewState(prNumber string) (*ReviewState, error) {
 	stateDir := filepath.Join(GetCacheDir(), "reviews")
-	lastReviewFile := fmt.Sprintf("%s/pr-%s-last-review.json", stateDir, prNumber)
+	lastReviewFile := filepath.Join(stateDir, fmt.Sprintf("pr-%s-last-review.json", prNumber))
 	
 	data, err := os.ReadFile(lastReviewFile)
 	if err != nil {
@@ -300,7 +300,7 @@ func loadReviewState(prNumber string) (*ReviewState, error) {
 // saveReviewState saves the review state to cache
 func saveReviewState(prNumber string, state ReviewState) error {
 	stateDir := filepath.Join(GetCacheDir(), "reviews")
-	lastReviewFile := fmt.Sprintf("%s/pr-%s-last-review.json", stateDir, prNumber)
+	lastReviewFile := filepath.Join(stateDir, fmt.Sprintf("pr-%s-last-review.json", prNumber))
 	
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
 		return fmt.Errorf("failed to create state directory: %w", err)
