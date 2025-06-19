@@ -101,7 +101,7 @@ This command polls every 30 seconds and waits until BOTH conditions are met:
 Use --exclude-reviews to wait for PR checks only.
 Use --exclude-checks to wait for reviews only.
 Use --request-review to automatically request Gemini review before waiting.
-Use --async to check once and return immediately (replaces 'reviews check').
+Use --async to check reviews once and return immediately (non-blocking).
 
 `+prNumberArgsHelp+`
 
