@@ -88,17 +88,6 @@ var threadsCmd = &cobra.Command{
 	Short: "GitHub review thread operations",
 }
 
-var checkReviewsCmd = NewOperationalCommand(
-	"check [pr-number]",
-	"Check for new PR reviews with state tracking",
-	`Check for new pull request reviews, tracking state to identify updates.
-
-This command maintains state in .cache/ to detect
-new reviews since the last check. Useful for monitoring PR activity.
-
-`+prNumberArgsHelp,
-	checkReviews,
-)
 
 var waitReviewsCmd = NewOperationalCommand(
 	"wait [pr-number]",
@@ -112,6 +101,7 @@ This command polls every 30 seconds and waits until BOTH conditions are met:
 Use --exclude-reviews to wait for PR checks only.
 Use --exclude-checks to wait for reviews only.
 Use --request-review to automatically request Gemini review before waiting.
+Use --async to check once and return immediately (replaces 'reviews check').
 
 `+prNumberArgsHelp+`
 
@@ -226,6 +216,7 @@ var (
 	excludeReviews bool
 	excludeChecks  bool
 	autoResolve    bool
+	async          bool
 )
 
 // Common help text for PR number arguments
@@ -236,7 +227,6 @@ const prNumberArgsHelp = `Arguments:
 
 func init() {
 	// Configure Args for operational commands (using NewOperationalCommand)
-	checkReviewsCmd.Args = cobra.MaximumNArgs(1)
 	waitReviewsCmd.Args = cobra.MaximumNArgs(1)
 	replyThreadsCmd.Args = cobra.ExactArgs(1)
 	// showThreadCmd already configured with MinimumNArgs(1) in command definition
@@ -263,9 +253,10 @@ func init() {
 	waitReviewsCmd.Flags().BoolVar(&excludeReviews, "exclude-reviews", false, "Exclude reviews, wait for PR checks only")
 	waitReviewsCmd.Flags().BoolVar(&excludeChecks, "exclude-checks", false, "Exclude checks, wait for reviews only")
 	waitReviewsCmd.Flags().BoolVar(&requestReview, "request-review", false, "Request Gemini review before waiting")
+	waitReviewsCmd.Flags().BoolVar(&async, "async", false, "Check reviews once and return immediately (non-blocking, replaces 'reviews check' for review functionality)")
 
 	// Add subcommands
-	reviewsCmd.AddCommand(checkReviewsCmd, analyzeReviewsCmd, fetchReviewsCmd, waitReviewsCmd)
+	reviewsCmd.AddCommand(fetchReviewsCmd, waitReviewsCmd)
 	threadsCmd.AddCommand(showThreadCmd, replyThreadsCmd, resolveThreadCmd)
 	rootCmd.AddCommand(reviewsCmd, threadsCmd)
 }
@@ -380,108 +371,69 @@ func checkClaudeCodeEnvironment() (time.Duration, bool) {
 	return 0, false
 }
 
-func checkReviews(cmd *cobra.Command, args []string) error {
-	client := NewGitHubClient(owner, repo)
-	
-	var input string
-	if len(args) > 0 {
-		input = args[0]
-	}
-	
-	prNumberInt, message, err := client.ResolvePRNumber(input)
+// performAsyncReviewCheck performs a single review check without waiting
+// This replaces the functionality of the removed checkReviews command
+func performAsyncReviewCheck(client *GitHubClient, prNumber string) error {
+	StatusMsg("Checking reviews for PR #%s in %s/%s...", prNumber, owner, repo).Print()
+
+	// Fetch current review data
+	opts := DefaultUnifiedReviewOptions()
+	opts.IncludeReviewBodies = true
+	opts.IncludeThreads = false // For check mode, we just need review state
+
+	data, err := client.GetUnifiedReviewData(prNumber, opts)
 	if err != nil {
-		return FetchError("PR number", err)
-	}
-	
-	if message != "" {
-		InfoMsg(message).Print()
-	}
-	
-	prNumberStr := fmt.Sprintf("%d", prNumberInt)
-
-	stateDir := filepath.Join(GetCacheDir(), "reviews")
-
-	if err := os.MkdirAll(stateDir, 0755); err != nil {
-		return fmt.Errorf("failed to create state directory: %w", err)
+		return fmt.Errorf("failed to fetch review data: %w", err)
 	}
 
-	StatusMsg("Checking reviews for PR #%s in %s/%s...", prNumberStr, owner, repo).Print()
+	StatusMsg("Found %d reviews for PR #%s", len(data.Reviews), prNumber).Print()
 
-	// Convert to int for unified query
-	prNumber, err := strconv.Atoi(prNumberStr)
-	if err != nil {
-		return FormatError("PR number", err)
-	}
-
-	// Use unified architecture for review checking
-	config := NewPRQueryConfig(owner, repo, prNumber).ForReviewsOnly()
-	response, err := client.FetchPRData(config)
-	if err != nil {
-		return err
-	}
-
-	reviews := response.GetReviews()
-	if len(reviews) == 0 {
-		InfoMsg("No reviews found").Print()
-		return nil
-	}
-
-	// Sort reviews by creation time (latest first)
-	// They should already be sorted, but let's be explicit
-
-	// Load existing state
-	lastState, err := loadReviewState(prNumberStr)
+	// Load existing review state
+	lastState, err := loadReviewState(prNumber)
 	if err == nil {
 		fmt.Printf("Last known review: %s at %s\n", lastState.ID, lastState.CreatedAt)
 
-		var newReviews []ReviewFields
-		for _, review := range reviews {
+		// Check for new reviews
+		hasNew := false
+		for _, review := range data.Reviews {
 			if review.CreatedAt > lastState.CreatedAt ||
 				(review.CreatedAt == lastState.CreatedAt && review.ID != lastState.ID) {
-				newReviews = append(newReviews, review)
+				hasNew = true
+				fmt.Printf("\n🎉 New review from %s at %s (%s)\n", review.Author, review.CreatedAt, review.State)
+				if review.Body != "" {
+					preview := review.Body
+					if len(preview) > 100 {
+						preview = preview[:100] + "..."
+					}
+					fmt.Printf("Preview: %s\n", preview)
+				}
 			}
 		}
 
-		if len(newReviews) > 0 {
-			fmt.Println() // Add newline
-			summary := &ReviewSummary{NewCount: len(newReviews), IsNew: true}
-			summary.Print()
-			for _, review := range newReviews {
-				fmt.Printf("  - %s at %s (%s)\n", review.Author.Login, review.CreatedAt, review.State)
-			}
-			fmt.Println()
-
-			fmt.Println("📝 New review details:")
-			for _, review := range newReviews {
-				body := review.Body
-				if body == "" {
-					body = "No body"
-				}
-				fmt.Printf("Author: %s\nTime: %s\nState: %s\nBody: %s\n---\n",
-					review.Author.Login, review.CreatedAt, review.State, body)
-			}
-		} else {
-			SuccessMsg("No new reviews since last check").Print()
+		if !hasNew {
+			InfoMsg("No new reviews since last check").Print()
 		}
 	} else {
-		InfoMsg("No previous state found, showing all recent reviews...").Print()
-		fmt.Println() // Add spacing
-		summary := &ReviewSummary{Count: len(reviews), IsNew: false}
-		summary.Print()
-		for _, review := range reviews {
-			fmt.Printf("  - %s at %s (%s)\n", review.Author.Login, review.CreatedAt, review.State)
+		// Provide more specific error information for non-file-not-found errors
+		if !os.IsNotExist(err) {
+			slog.Warn("failed to load previous review state", "pr", prNumber, "error", err)
+		}
+		WarningMsg("No previous state found or state could not be loaded, showing all recent reviews...").Print()
+		fmt.Printf("\n📋 Found %d review(s) total\n", len(data.Reviews))
+		for _, review := range data.Reviews {
+			fmt.Printf("  - %s at %s (%s)\n", review.Author, review.CreatedAt, review.State)
 		}
 	}
 
-	// Update state with latest review (last element since we use GraphQL 'last: 15')
-	if len(reviews) > 0 {
-		latestReview := reviews[len(reviews)-1]  // Fix: use last element as latest
-		newState := ReviewState{
+	// Update state with the latest review
+	if len(data.Reviews) > 0 {
+		latestReview := data.Reviews[len(data.Reviews)-1]
+		newState := &ReviewState{
 			ID:        latestReview.ID,
 			CreatedAt: latestReview.CreatedAt,
 		}
-		if err := saveReviewState(prNumberStr, newState); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to save state: %v\n", err)
+		if err := saveReviewState(prNumber, *newState); err != nil {
+			slog.Warn("failed to save review state", "pr", prNumber, "error", err)
 		} else {
 			fmt.Printf("\n💾 Updated state: Latest review %s at %s\n", latestReview.ID, latestReview.CreatedAt)
 		}
@@ -501,6 +453,16 @@ func waitForReviews(cmd *cobra.Command, args []string) error {
 	// Validate flags
 	if excludeReviews && excludeChecks {
 		return fmt.Errorf("cannot exclude both reviews and checks")
+	}
+	
+	// Handle async mode - single check and return (replaces reviews check)
+	if async {
+		if !excludeReviews {
+			InfoMsg("Running in async mode (single check, no waiting)").Print()
+			return performAsyncReviewCheck(client, prNumber)
+		} else {
+			return fmt.Errorf("async mode currently only supports review checking")
+		}
 	}
 	
 	// Determine what to wait for
@@ -632,7 +594,7 @@ func waitForReviewsOnly(prNumber string) error {
 			}
 			
 			fmt.Println("\n✅ New reviews available!")
-			fmt.Printf("💡 To list unresolved threads: bin/gh-helper threads list %s\n", prNumber)
+			ListThreadsGuidance(prNumber).Print()
 			fmt.Println("⚠️  IMPORTANT: Please read the review feedback carefully before proceeding")
 			return nil
 		}
@@ -853,7 +815,8 @@ func waitForReviewsAndChecks(cmd *cobra.Command, args []string) error {
 					}
 				}
 				
-				fmt.Printf("\n💡 To list unresolved threads: bin/gh-helper threads list %s\n", prNumber)
+				fmt.Println()
+				ListThreadsGuidance(prNumber).Print()
 				fmt.Println("⚠️  IMPORTANT: Please read the review feedback carefully before proceeding")
 			}
 			

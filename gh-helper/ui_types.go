@@ -243,7 +243,7 @@ func ManualRetryGuidance(prNumber string, timeout interface{}) *GuidanceMessage 
 func ListThreadsGuidance(prNumber string) *GuidanceMessage {
 	return &GuidanceMessage{
 		Action:  "To list unresolved threads",
-		Command: fmt.Sprintf("bin/gh-helper threads list %s", prNumber),
+		Command: fmt.Sprintf("bin/gh-helper reviews fetch %s --list-threads", prNumber),
 	}
 }
 

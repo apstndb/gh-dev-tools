@@ -25,8 +25,8 @@ make build          # Build gh-helper tool
 make test-quick     # Quick tests during development
 
 # Tool usage
+make build              # Build gh-helper tool
 ./bin/gh-helper --help  # Show available commands
-./bin/gh-helper reviews analyze <PR>  # Complete review analysis
 ./bin/gh-helper reviews fetch <PR>    # Fetch review data
 ./bin/gh-helper threads reply <ID>    # Reply to review thread
 ```
@@ -70,9 +70,11 @@ git push origin HEAD  # Explicit push to current branch
 
 ### Review Thread Management
 - **Always resolve review threads** after addressing feedback
+- **CRITICAL: Push commits BEFORE replying to threads** - GitHub needs the commit to exist for proper linking
 - **For threads requiring code changes**:
   1. Make the necessary changes and commit
-  2. Reply with commit hash and resolve: `./bin/gh-helper threads reply <THREAD_ID> --commit-hash <HASH> --message "Fixed as suggested" --resolve`
+  2. **Push the commit to GitHub first**: `git push origin HEAD`
+  3. Reply with commit hash and resolve: `./bin/gh-helper threads reply <THREAD_ID> --commit-hash <HASH> --message "Fixed as suggested" --resolve`
 - **For threads not requiring changes**:
   1. Reply with explanation and resolve: `./bin/gh-helper threads reply <THREAD_ID> --message "Explanation here" --resolve`
 - **Batch resolve multiple threads**: `./bin/gh-helper threads resolve <THREAD_ID1> <THREAD_ID2> <THREAD_ID3>`
@@ -90,6 +92,24 @@ git commit -m "fix: address review feedback"
 - **Gemini Code Assist**: Provides automatic initial review but requires explicit request for follow-up reviews
 - **Request additional reviews**: Comment `/gemini review` on PR for re-review after significant changes
 - **Initial review only**: After first automated review, no additional reviews come automatically
+
+### Pull Request Merging
+- **ALWAYS use Squash and Merge**: Never use regular merge or rebase merge
+- **Merge body content**: In the squash commit body, provide a summary of all changes from the branch HEAD
+- **Format**: Use clear bullet points summarizing what changed
+- **Example workflow**:
+  ```bash
+  # After all reviews are resolved and checks pass
+  gh pr merge <PR> --squash --body "$(cat <<'EOF'
+  Summary of changes:
+  - Removed deprecated reviews check command
+  - Implemented async mode in reviews wait command
+  - Fixed guidance messages to use correct command syntax
+  - Enhanced error logging with slog
+  - Improved documentation in CLAUDE.md
+  EOF
+  )"
+  ```
 
 ## Installation and Usage
 

@@ -51,7 +51,7 @@ const (
 	MsgResolveAndPush        = "💡 Resolve conflicts and push to trigger CI checks"
 	
 	// Guidance messages
-	MsgListThreads        = "💡 To list unresolved threads: bin/gh-helper threads list %s"
+	MsgListThreads        = "💡 To list unresolved threads, use: bin/gh-helper reviews fetch %s --list-threads"
 	MsgImportantRead      = "⚠️  IMPORTANT: Please read the review feedback carefully before proceeding"
 	MsgExtendTimeout      = "💡 To extend timeout, set BASH_MAX_TIMEOUT_MS in ~/.claude/settings.json"
 	MsgTimeoutExample     = "💡 Example: {\"env\": {\"BASH_MAX_TIMEOUT_MS\": \"900000\"}} for 15 minutes"
