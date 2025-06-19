@@ -25,10 +25,10 @@ make build          # Build gh-helper tool
 make test-quick     # Quick tests during development
 
 # Tool usage
-./gh-helper --help  # Show available commands
-./gh-helper reviews analyze <PR>  # Complete review analysis
-./gh-helper reviews fetch <PR>    # Fetch review data
-./gh-helper threads reply <ID>    # Reply to review thread
+./bin/gh-helper --help  # Show available commands
+./bin/gh-helper reviews analyze <PR>  # Complete review analysis
+./bin/gh-helper reviews fetch <PR>    # Fetch review data
+./bin/gh-helper threads reply <ID>    # Reply to review thread
 ```
 
 ## Core Architecture
@@ -54,9 +54,18 @@ make check          # Combined test && lint (required before push)
 ```
 
 ### Git Practices
-- Always use `git add <specific-files>` (never `git add .`)
+- **Always use `git add <specific-files>`** - Never use `git add .` or `git add -A`
+- **Check `git status` before committing** - Verify only intended files are staged
+- **Verify staged files** - Ensure no build artifacts, temporary, or unintended files are included
 - Link PRs to issues when applicable
-- Check `git status` before committing
+
+Example workflow:
+```bash
+# Make changes to specific files
+git add path/to/file1.go path/to/file2.go
+git status  # Verify only intended files are staged
+git commit -m "description of changes"
+```
 
 ## Installation and Usage
 
@@ -84,6 +93,6 @@ go install github.com/apstndb/gh-dev-tools/gh-helper@latest
 - **GitHub API**: Uses GitHub GraphQL API directly for optimal performance
 - **Output Formats**: Supports both YAML (default) and JSON output
 - **AI-First Design**: Interface optimized for AI assistant workflows
-- **No Dependencies**: Standalone tool with minimal external dependencies
+- **Minimal Dependencies**: Uses goccy/go-yaml, spf13/cobra, and golang.org/x/net
 
 For detailed usage examples and API documentation, see the README.md file.

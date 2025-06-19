@@ -2,10 +2,11 @@
 # Generic GitHub development tools optimized for AI assistants
 
 build:
-	go build -o gh-helper ./gh-helper
+	mkdir -p bin
+	go build -o bin/gh-helper ./gh-helper
 
 clean:
-	rm -f gh-helper
+	rm -rf bin tmp
 	go clean -testcache
 
 test:
@@ -15,7 +16,8 @@ test-verbose:
 	go test -v ./...
 
 test-coverage:
-	go test ./... -coverprofile=coverage.out
+	mkdir -p tmp
+	go test ./... -coverprofile=tmp/coverage.out
 
 test-quick:
 	go test -short ./...
@@ -47,8 +49,8 @@ help:
 	@echo "  make install          - Install gh-helper to $GOPATH/bin"
 	@echo ""
 	@echo "🚀 Quick Start:"
-	@echo "  ./gh-helper reviews analyze <PR>     # Complete review analysis"
-	@echo "  ./gh-helper reviews fetch <PR>       # Fetch review data"
-	@echo "  ./gh-helper threads reply <ID>       # Reply to review thread"
+	@echo "  ./bin/gh-helper reviews analyze <PR>     # Complete review analysis"
+	@echo "  ./bin/gh-helper reviews fetch <PR>       # Fetch review data"
+	@echo "  ./bin/gh-helper threads reply <ID>       # Reply to review thread"
 
 .PHONY: build clean test test-verbose test-coverage test-quick lint check check-coverage install help

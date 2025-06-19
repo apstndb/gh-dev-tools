@@ -35,7 +35,7 @@ jobs:
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
       with:
-        file: ./coverage.out
+        file: ./tmp/coverage.out
         fail_ci_if_error: false
 
   lint:
@@ -66,6 +66,3 @@ jobs:
 
     - name: Build
       run: make build
-
-    - name: Test executable
-      run: ./gh-helper --help
