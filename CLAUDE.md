@@ -25,8 +25,8 @@ make build          # Build gh-helper tool
 make test-quick     # Quick tests during development
 
 # Tool usage
+make build              # Build gh-helper tool
 ./bin/gh-helper --help  # Show available commands
-./bin/gh-helper reviews analyze <PR>  # Complete review analysis
 ./bin/gh-helper reviews fetch <PR>    # Fetch review data
 ./bin/gh-helper threads reply <ID>    # Reply to review thread
 ```
