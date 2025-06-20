@@ -16,6 +16,16 @@ gh-dev-tools provides generic GitHub development tools optimized for AI assistan
 3. **Never push directly to main branch** - always use Pull Requests
 4. **Never commit directly to main branch** - always use feature branches
 
+**Before ANY PR merge**:
+1. **Resolve ALL review threads** - use `./bin/gh-helper reviews fetch <PR> --list-threads` to verify no unresolved threads remain
+2. **Address ALL review feedback** - implement suggested changes or provide clear explanations
+3. **Verify all checks pass** - ensure CI/CD pipeline completes successfully
+
+**During issue organization/maintenance**:
+1. **Check past PRs for unresolved threads** - use `./bin/gh-helper reviews fetch <PR> --list-threads` on recent merged PRs
+2. **Resolve implemented feedback** - if suggestions from past PRs have been implemented, resolve the original threads
+3. **Update documentation** - ensure CLAUDE.md reflects current best practices learned from reviews
+
 ## Essential Commands
 
 ```bash
