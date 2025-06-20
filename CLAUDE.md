@@ -42,9 +42,19 @@ make build              # Build gh-helper tool
 ## Development Workflow
 
 ### Branch Management
+- **Always fetch before creating branches**: Run `git fetch origin` before creating any new branch
+- **Base branches on origin/main**: Always create feature branches from `origin/main` to ensure they include latest changes
 - **Feature branches**: Always create feature branches for development
 - **Pull Requests**: All changes must go through PR review
 - **No direct commits**: Never commit directly to main branch
+
+Example:
+```bash
+# Always fetch latest changes first
+git fetch origin
+# Create branch from latest origin/main
+git checkout -b feature/new-feature origin/main
+```
 
 ### Testing and Quality
 ```bash
