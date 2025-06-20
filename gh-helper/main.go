@@ -419,7 +419,7 @@ func performAsyncReviewCheck(client *GitHubClient, prNumber string) error {
 	} else {
 		// Provide more specific error information for non-file-not-found errors
 		if !os.IsNotExist(err) {
-			slog.Info("failed to load previous review state", "pr", prNumber, "error", err)
+			slog.Warn("failed to load previous review state", "pr", prNumber, "error", err)
 		}
 		WarningMsg("No previous state found or state could not be loaded, showing all recent reviews...").Print()
 		fmt.Printf("\n📋 Found %d review(s) total\n", len(data.Reviews))
@@ -860,7 +860,10 @@ func showThread(cmd *cobra.Command, args []string) error {
 	format := ResolveFormat(cmd)
 	
 	// Get exclude-urls flag
-	excludeURLs, _ := cmd.Flags().GetBool("exclude-urls")
+	excludeURLs, err := cmd.Flags().GetBool("exclude-urls")
+	if err != nil {
+		return fmt.Errorf("failed to read 'exclude-urls' flag: %w", err)
+	}
 
 	// Use batch query for multiple threads or single thread
 	threadsMap, err := client.GetThreadBatch(args, excludeURLs)

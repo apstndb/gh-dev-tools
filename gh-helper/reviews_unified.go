@@ -91,7 +91,10 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 	format := ResolveFormat(cmd)
 	
 	// Get exclude-urls flag
-	excludeURLs, _ := cmd.Flags().GetBool("exclude-urls")
+	excludeURLs, err := cmd.Flags().GetBool("exclude-urls")
+	if err != nil {
+		return fmt.Errorf("failed to read 'exclude-urls' flag: %w", err)
+	}
 	
 	// Adjust flags for thread-focused modes
 	if listThreads || threadsOnly {
