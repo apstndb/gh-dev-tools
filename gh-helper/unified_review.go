@@ -60,6 +60,7 @@ type ReviewComment struct {
 // ThreadData represents a review thread with full context
 type ThreadData struct {
 	ID          string        `json:"id"`
+	URL         string        `json:"url,omitempty"`
 	Path        string        `json:"path"`
 	Line        *int          `json:"line"`
 	IsResolved  bool          `json:"isResolved"`
@@ -72,6 +73,7 @@ type ThreadData struct {
 // ThreadComment represents a comment in a thread
 type ThreadComment struct {
 	ID        string `json:"id"`
+	URL       string `json:"url,omitempty"`
 	Author    string `json:"author"`
 	Body      string `json:"body"`
 	CreatedAt string `json:"createdAt"`
@@ -87,6 +89,7 @@ type UnifiedReviewOptions struct {
 	ReviewBeforeCursor   string // Pagination cursor for reviews (for previous page)
 	ThreadAfterCursor    string // Pagination cursor for threads
 	NeedsReplyOnly       bool   // Filter to only unresolved threads (GraphQL optimization)
+	ExcludeURLs          bool   // Exclude URLs from GraphQL query
 }
 
 // DefaultUnifiedReviewOptions returns sensible defaults
@@ -134,7 +137,8 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
       $useReviewsAfter: Boolean!, $reviewAfterCursor: String!,
       $useReviewsBefore: Boolean!, $reviewBeforeCursor: String!,
       $useDefaultThreads: Boolean!,
-      $useThreadsAfter: Boolean!, $threadAfterCursor: String!) {
+      $useThreadsAfter: Boolean!, $threadAfterCursor: String!,
+      $excludeUrls: Boolean!) {
   viewer {
     login
   }
@@ -245,6 +249,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
           comments(first: 20) {
             nodes {
               id
+              url @skip(if: $excludeUrls)
               author { login }
               body
               createdAt
@@ -271,6 +276,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
           comments(first: 20) {
             nodes {
               id
+              url @skip(if: $excludeUrls)
               author { login }
               body
               createdAt
@@ -297,6 +303,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 		"useDefaultThreads":   useDefaultThreads,
 		"useThreadsAfter":     useThreadsAfter,
 		"threadAfterCursor":   opts.ThreadAfterCursor,
+		"excludeUrls":         opts.ExcludeURLs,
 	}
 
 	result, err := c.RunGraphQLQueryWithVariables(query, variables)
@@ -415,6 +422,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 							Comments   struct {
 								Nodes []struct {
 									ID        string `json:"id"`
+									URL       string `json:"url"`
 									Author    struct {
 										Login string `json:"login"`
 									} `json:"author"`
@@ -441,6 +449,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 							Comments   struct {
 								Nodes []struct {
 									ID        string `json:"id"`
+									URL       string `json:"url"`
 									Author    struct {
 										Login string `json:"login"`
 									} `json:"author"`
@@ -570,6 +579,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 		for _, comment := range thread.Comments.Nodes {
 			comments = append(comments, ThreadComment{
 				ID:        comment.ID,
+				URL:       comment.URL,
 				Author:    comment.Author.Login,
 				Body:      comment.Body,
 				CreatedAt: comment.CreatedAt,
@@ -583,8 +593,15 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 		// So unresolved threads are the ones that need attention
 		needsReply := !thread.IsResolved
 
+		// Thread URL is the URL of the first comment
+		threadURL := ""
+		if len(comments) > 0 {
+			threadURL = comments[0].URL
+		}
+		
 		threads = append(threads, ThreadData{
 			ID:          thread.ID,
+			URL:         threadURL,
 			Path:        thread.Path,
 			Line:        thread.Line,
 			IsResolved:  thread.IsResolved,

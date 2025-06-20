@@ -64,6 +64,7 @@ func init() {
 	// Convenience flags
 	fetchReviewsCmd.Flags().Bool("no-threads", false, "Exclude threads (shorthand for --threads=false)")
 	fetchReviewsCmd.Flags().Bool("no-bodies", false, "Exclude bodies (shorthand for --bodies=false)")
+	fetchReviewsCmd.Flags().Bool("exclude-urls", false, "Exclude URLs from output")
 }
 
 func fetchReviews(cmd *cobra.Command, args []string) error {
@@ -89,6 +90,12 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 	// Get output format using unified resolver
 	format := ResolveFormat(cmd)
 	
+	// Get exclude-urls flag
+	excludeURLs, err := cmd.Flags().GetBool("exclude-urls")
+	if err != nil {
+		return fmt.Errorf("failed to read 'exclude-urls' flag: %w", err)
+	}
+	
 	// Adjust flags for thread-focused modes
 	if listThreads || threadsOnly {
 		format = FormatJSON // Force JSON for thread-focused modes
@@ -105,6 +112,7 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 		ThreadLimit:         threadLimit,
 		ReviewLimit:         reviewLimit,
 		NeedsReplyOnly:      needsReplyOnly,
+		ExcludeURLs:         excludeURLs,
 	}
 
 	// Use structured logging (slog) for consistent format with JSON/YAML output
@@ -150,7 +158,7 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 		return EncodeOutput(os.Stdout, format, data)
 	}
 	
-	// Use specialized output function for better structure
+	// Use specialized output function for better structure  
 	return outputFetch(data, includeReviewBodies, includeThreads, format)
 }
 
@@ -230,6 +238,11 @@ func outputFetch(data *UnifiedReviewData, includeReviewBodies bool, includeThrea
 					"isOutdated": thread.IsOutdated,
 				}
 				
+				// Include URL only if not empty (respects @skip directive)
+				if thread.URL != "" {
+					threadData["url"] = thread.URL
+				}
+				
 				// Add comment information
 				if len(thread.Comments) > 0 {
 					last := thread.Comments[len(thread.Comments)-1]
@@ -238,12 +251,19 @@ func outputFetch(data *UnifiedReviewData, includeReviewBodies bool, includeThrea
 					// Include all comments with author information
 					comments := []map[string]interface{}{}
 					for _, comment := range thread.Comments {
-						comments = append(comments, map[string]interface{}{
+						commentData := map[string]interface{}{
 							"id":        comment.ID,
 							"author":    comment.Author,
 							"createdAt": comment.CreatedAt,
 							"body":      comment.Body,
-						})
+						}
+						
+						// Include URL only if not empty (respects @skip directive)
+						if comment.URL != "" {
+							commentData["url"] = comment.URL
+						}
+						
+						comments = append(comments, commentData)
 					}
 					threadData["comments"] = comments
 				}

@@ -42,9 +42,19 @@ make build              # Build gh-helper tool
 ## Development Workflow
 
 ### Branch Management
+- **Always fetch before creating branches**: Run `git fetch origin` before creating any new branch
+- **Base branches on origin/main**: Always create feature branches from `origin/main` to ensure they include latest changes
 - **Feature branches**: Always create feature branches for development
 - **Pull Requests**: All changes must go through PR review
 - **No direct commits**: Never commit directly to main branch
+
+Example:
+```bash
+# Always fetch latest changes first
+git fetch origin
+# Create branch from latest origin/main
+git checkout -b feature/new-feature origin/main
+```
 
 ### Testing and Quality
 ```bash
@@ -90,8 +100,9 @@ git commit -m "fix: address review feedback"
 
 ### Automated Review Management
 - **Gemini Code Assist**: Provides automatic initial review but requires explicit request for follow-up reviews
-- **Request additional reviews**: Comment `/gemini review` on PR for re-review after significant changes
-- **Initial review only**: After first automated review, no additional reviews come automatically
+- **Initial PR creation**: Gemini automatically reviews new PRs, no `--request-review` flag needed initially
+- **Follow-up reviews**: Use `--request-review` flag or comment `/gemini review` for re-review after significant changes
+- **Important**: `--request-review` is only needed for subsequent reviews, not for newly created PRs
 
 ### Pull Request Merging
 - **ALWAYS use Squash and Merge**: Never use regular merge or rebase merge
