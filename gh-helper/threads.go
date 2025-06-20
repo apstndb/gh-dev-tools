@@ -8,6 +8,7 @@ import (
 // ThreadInfo represents a review thread with metadata
 type ThreadInfo struct {
 	ID          string `json:"id"`
+	URL         string `json:"url,omitempty"`
 	Line        *int   `json:"line"`
 	Path        string `json:"path"`
 	IsResolved  bool   `json:"isResolved"`
@@ -19,6 +20,7 @@ type ThreadInfo struct {
 // CommentInfo represents a comment within a thread
 type CommentInfo struct {
 	ID        string `json:"id"`
+	URL       string `json:"url,omitempty"`
 	Body      string `json:"body"`
 	Author    string `json:"author"`
 	CreatedAt string `json:"createdAt"`
@@ -34,7 +36,7 @@ type BatchThreadsResponse struct {
 
 // ListReviewThreads fetches all review threads for a PR with filtering and batch optimization  
 // Eliminates N+1 query problem with single GraphQL request
-func (c *GitHubClient) ListReviewThreads(prNumber string, needsReplyOnly, unresolvedOnly bool, limit int) (*BatchThreadsResponse, error) {
+func (c *GitHubClient) ListReviewThreads(prNumber string, needsReplyOnly, unresolvedOnly bool, limit int, excludeURLs bool) (*BatchThreadsResponse, error) {
 	prNumberInt, err := strconv.Atoi(prNumber)
 	if err != nil {
 		return nil, fmt.Errorf("invalid PR number format: %w", err)
@@ -47,7 +49,7 @@ func (c *GitHubClient) ListReviewThreads(prNumber string, needsReplyOnly, unreso
 	// Single GraphQL query to fetch all required data
 	// OPTIMIZATION: Include viewer info to eliminate separate getCurrentUser() API call
 	query := `
-query($owner: String!, $repo: String!, $prNumber: Int!, $limit: Int!) {
+query($owner: String!, $repo: String!, $prNumber: Int!, $limit: Int!, $excludeUrls: Boolean!) {
   viewer {
     login
   }
@@ -64,6 +66,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $limit: Int!) {
           comments(first: 20) {
             nodes {
               id
+              url @skip(if: $excludeUrls)
               body
               author {
                 login
@@ -79,10 +82,11 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $limit: Int!) {
 }`
 
 	variables := map[string]interface{}{
-		"owner":    c.Owner,
-		"repo":     c.Repo,
-		"prNumber": prNumberInt,
-		"limit":    limit,
+		"owner":      c.Owner,
+		"repo":       c.Repo,
+		"prNumber":   prNumberInt,
+		"limit":      limit,
+		"excludeUrls": excludeURLs,
 	}
 
 	result, err := c.RunGraphQLQueryWithVariables(query, variables)
@@ -108,6 +112,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $limit: Int!) {
 							Comments    struct {
 								Nodes []struct {
 									ID        string `json:"id"`
+									URL       string `json:"url"`
 									Body      string `json:"body"`
 									Author    struct {
 										Login string `json:"login"`
@@ -143,6 +148,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $limit: Int!) {
 		for _, comment := range thread.Comments.Nodes {
 			comments = append(comments, CommentInfo{
 				ID:        comment.ID,
+				URL:       comment.URL,
 				Body:      comment.Body,
 				Author:    comment.Author.Login,
 				CreatedAt: comment.CreatedAt,
@@ -159,8 +165,15 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $limit: Int!) {
 			continue
 		}
 
+		// Thread URL is the URL of the first comment
+		threadURL := ""
+		if len(comments) > 0 {
+			threadURL = comments[0].URL
+		}
+		
 		filteredThreads = append(filteredThreads, ThreadInfo{
 			ID:          thread.ID,
+			URL:         threadURL,
 			Line:        thread.Line,
 			Path:        thread.Path,
 			IsResolved:  thread.IsResolved,
@@ -184,7 +197,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $limit: Int!) {
 // - Uses GraphQL's multi-node query to fetch multiple threads simultaneously
 // - Eliminates N API calls for N threads (O(N) → O(1) optimization)
 // - Maintains thread order and provides error context for invalid IDs
-func (c *GitHubClient) GetThreadBatch(threadIDs []string) (map[string]*ThreadInfo, error) {
+func (c *GitHubClient) GetThreadBatch(threadIDs []string, excludeURLs bool) (map[string]*ThreadInfo, error) {
 	if len(threadIDs) == 0 {
 		return map[string]*ThreadInfo{}, nil
 	}
@@ -192,7 +205,7 @@ func (c *GitHubClient) GetThreadBatch(threadIDs []string) (map[string]*ThreadInf
 	// Construct nodes query for multiple threads
 	// GraphQL allows querying multiple nodes by ID in single request
 	query := `
-query($ids: [ID!]!) {
+query($ids: [ID!]!, $excludeUrls: Boolean!) {
   nodes(ids: $ids) {
     id
     ... on PullRequestReviewThread {
@@ -207,6 +220,7 @@ query($ids: [ID!]!) {
       comments(first: 20) {
         nodes {
           id
+          url @skip(if: $excludeUrls)
           body
           author {
             login
@@ -220,7 +234,8 @@ query($ids: [ID!]!) {
 }`
 
 	variables := map[string]interface{}{
-		"ids": threadIDs,
+		"ids":         threadIDs,
+		"excludeUrls": excludeURLs,
 	}
 
 	result, err := c.RunGraphQLQueryWithVariables(query, variables)
@@ -243,6 +258,7 @@ query($ids: [ID!]!) {
 				Comments struct {
 					Nodes []struct {
 						ID        string `json:"id"`
+						URL       string `json:"url"`
 						Body      string `json:"body"`
 						Author    struct {
 							Login string `json:"login"`
@@ -270,6 +286,7 @@ query($ids: [ID!]!) {
 		for _, comment := range node.Comments.Nodes {
 			comments = append(comments, CommentInfo{
 				ID:        comment.ID,
+				URL:       comment.URL,
 				Body:      comment.Body,
 				Author:    comment.Author.Login,
 				CreatedAt: comment.CreatedAt,
@@ -277,8 +294,15 @@ query($ids: [ID!]!) {
 			})
 		}
 
+		// Thread URL is the URL of the first comment
+		threadURL := ""
+		if len(comments) > 0 {
+			threadURL = comments[0].URL
+		}
+		
 		threads[node.ID] = &ThreadInfo{
 			ID:          node.ID,
+			URL:         threadURL,
 			Line:        node.Line,
 			Path:        node.Path,
 			IsResolved:  node.IsResolved,

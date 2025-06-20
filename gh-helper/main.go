@@ -255,6 +255,9 @@ func init() {
 	waitReviewsCmd.Flags().BoolVar(&requestReview, "request-review", false, "Request Gemini review before waiting")
 	waitReviewsCmd.Flags().BoolVar(&async, "async", false, "Check reviews once and return immediately (non-blocking, replaces 'reviews check' for review functionality)")
 
+	// Thread command flags
+	showThreadCmd.Flags().Bool("exclude-urls", false, "Exclude URLs from output")
+
 	// Add subcommands
 	reviewsCmd.AddCommand(fetchReviewsCmd, waitReviewsCmd)
 	threadsCmd.AddCommand(showThreadCmd, replyThreadsCmd, resolveThreadCmd)
@@ -855,9 +858,12 @@ func showThread(cmd *cobra.Command, args []string) error {
 
 	// Get output format using unified resolver
 	format := ResolveFormat(cmd)
+	
+	// Get exclude-urls flag
+	excludeURLs, _ := cmd.Flags().GetBool("exclude-urls")
 
 	// Use batch query for multiple threads or single thread
-	threadsMap, err := client.GetThreadBatch(args)
+	threadsMap, err := client.GetThreadBatch(args, excludeURLs)
 	if err != nil {
 		return fmt.Errorf("failed to fetch threads: %w", err)
 	}
@@ -882,6 +888,11 @@ func showThread(cmd *cobra.Command, args []string) error {
 			"line":       thread.Line,
 		}
 		
+		// Include URL only if not empty (respects @skip directive)
+		if thread.URL != "" {
+			output["url"] = thread.URL
+		}
+		
 		if thread.SubjectType != "" {
 			output["subjectType"] = thread.SubjectType
 		}
@@ -894,6 +905,11 @@ func showThread(cmd *cobra.Command, args []string) error {
 				"author":    map[string]string{"login": comment.Author},
 				"createdAt": comment.CreatedAt,
 				"body":      comment.Body,
+			}
+			
+			// Include URL only if not empty (respects @skip directive)
+			if comment.URL != "" {
+				commentData["url"] = comment.URL
 			}
 			
 			if i == 0 && comment.DiffHunk != "" {
