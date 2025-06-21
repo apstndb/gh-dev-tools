@@ -21,20 +21,23 @@ type PRQueryConfig struct {
 	IncludePagination     bool
 	IncludeThreadMetadata bool // For isOutdated, subjectType, pullRequest
 	IncludeCommentDetails bool // For diffHunk in comments
+	IncludeComments       bool // For PR comments (issue comments)
 
 	// Limits for data fetching
-	ReviewLimit int
-	ThreadLimit int
+	ReviewLimit  int
+	ThreadLimit  int
+	CommentLimit int
 }
 
 // NewPRQueryConfig creates a basic configuration
 func NewPRQueryConfig(owner, repo string, prNumber int) *PRQueryConfig {
 	return &PRQueryConfig{
-		Owner:       owner,
-		Repo:        repo,
-		PRNumber:    prNumber,
-		ReviewLimit: 15,
-		ThreadLimit: 50,
+		Owner:        owner,
+		Repo:         repo,
+		PRNumber:     prNumber,
+		ReviewLimit:  15,
+		ThreadLimit:  50,
+		CommentLimit: 50,
 	}
 }
 
@@ -88,22 +91,36 @@ func (c *PRQueryConfig) ForSingleThread() *PRQueryConfig {
 	return c
 }
 
+// WithThreads adds thread data to the query
+func (c *PRQueryConfig) WithThreads() *PRQueryConfig {
+	c.IncludeThreads = true
+	return c
+}
+
+// WithComments adds PR comments to the query
+func (c *PRQueryConfig) WithComments() *PRQueryConfig {
+	c.IncludeComments = true
+	return c
+}
+
 // ToGraphQLVariables converts config to GraphQL variables
 func (c *PRQueryConfig) ToGraphQLVariables() map[string]interface{} {
 	return map[string]interface{}{
-		"owner":               c.Owner,
-		"repo":                c.Repo,
-		"prNumber":            c.PRNumber,
-		"includeReviews":      c.IncludeReviews,
-		"includeThreads":      c.IncludeThreads,
-		"includeStatus":       c.IncludeStatus,
-		"includeMetadata":     c.IncludeMetadata,
+		"owner":                 c.Owner,
+		"repo":                  c.Repo,
+		"prNumber":              c.PRNumber,
+		"includeReviews":        c.IncludeReviews,
+		"includeThreads":        c.IncludeThreads,
+		"includeStatus":         c.IncludeStatus,
+		"includeMetadata":       c.IncludeMetadata,
 		"includeReviewBodies":   c.IncludeReviewBodies,
 		"includePagination":     c.IncludePagination,
 		"includeThreadMetadata": c.IncludeThreadMetadata,
 		"includeCommentDetails": c.IncludeCommentDetails,
+		"includeComments":       c.IncludeComments,
 		"reviewLimit":           c.ReviewLimit,
 		"threadLimit":           c.ThreadLimit,
+		"commentLimit":          c.CommentLimit,
 	}
 }
 
@@ -165,6 +182,20 @@ fragment ThreadFields on PullRequestReviewThread {
 
 fragment StatusCheckRollupFields on StatusCheckRollup {
   state
+  contexts(first: 100) {
+    nodes {
+      __typename
+      ... on CheckRun {
+        name
+        status
+        conclusion
+      }
+      ... on StatusContext {
+        context
+        state
+      }
+    }
+  }
 }
 
 fragment CommitWithStatusFields on Commit {
@@ -187,10 +218,12 @@ query UniversalPRQuery(
   $includePagination: Boolean! = false
   $includeThreadMetadata: Boolean! = false
   $includeCommentDetails: Boolean! = false
+  $includeComments: Boolean! = false
   
   # Limits with defaults
   $reviewLimit: Int = 15
   $threadLimit: Int = 50
+  $commentLimit: Int = 50
 ) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $prNumber) {
@@ -201,6 +234,22 @@ query UniversalPRQuery(
       # Metadata (conditional)
       mergeable @include(if: $includeMetadata)
       mergeStateStatus @include(if: $includeMetadata)
+      createdAt @include(if: $includeMetadata)
+      
+      # Last push date
+      timelineItems(last: 1, itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT, PULL_REQUEST_COMMIT]) @include(if: $includeMetadata) {
+        nodes {
+          __typename
+          ... on HeadRefForcePushedEvent {
+            createdAt
+          }
+          ... on PullRequestCommit {
+            commit {
+              committedDate
+            }
+          }
+        }
+      }
       
       # Reviews (conditional)
       reviews(last: $reviewLimit) @include(if: $includeReviews) {
@@ -232,6 +281,20 @@ query UniversalPRQuery(
           }
         }
       }
+      
+      # PR Comments (conditional)
+      comments(last: $commentLimit) @include(if: $includeComments) {
+        nodes {
+          id
+          author { login }
+          body
+          createdAt
+        }
+        pageInfo @include(if: $includePagination) {
+          ...PageInfoFields
+        }
+        totalCount @include(if: $includePagination)
+      }
     }
   }
 }`
@@ -245,6 +308,11 @@ type UniversalPRResponse struct {
 				Title            string  `json:"title"`
 				Mergeable        *string `json:"mergeable,omitempty"`
 				MergeStateStatus *string `json:"mergeStateStatus,omitempty"`
+				CreatedAt        *string `json:"createdAt,omitempty"`
+				
+				TimelineItems *struct {
+					Nodes []interface{} `json:"nodes,omitempty"`
+				} `json:"timelineItems,omitempty"`
 
 				Reviews *struct {
 					Nodes      []ReviewFields  `json:"nodes,omitempty"`
@@ -263,6 +331,12 @@ type UniversalPRResponse struct {
 						Commit CommitWithStatusFields `json:"commit"`
 					} `json:"nodes,omitempty"`
 				} `json:"commits,omitempty"`
+				
+				Comments *struct {
+					Nodes      []CommentFields `json:"nodes,omitempty"`
+					PageInfo   *PageInfoFields `json:"pageInfo,omitempty"`
+					TotalCount *int            `json:"totalCount,omitempty"`
+				} `json:"comments,omitempty"`
 			} `json:"pullRequest"`
 		} `json:"repository"`
 	} `json:"data"`
@@ -338,6 +412,58 @@ func (r *UniversalPRResponse) HasThreads() bool {
 // HasStatus checks if status data was requested and available
 func (r *UniversalPRResponse) HasStatus() bool {
 	return r.Data.Repository.PullRequest.Commits != nil
+}
+
+// GetComments returns PR comments if included, nil otherwise
+func (r *UniversalPRResponse) GetComments() []CommentFields {
+	if r.Data.Repository.PullRequest.Comments == nil {
+		return nil
+	}
+	return r.Data.Repository.PullRequest.Comments.Nodes
+}
+
+// GetTitle returns the PR title
+func (r *UniversalPRResponse) GetTitle() string {
+	return r.Data.Repository.PullRequest.Title
+}
+
+// GetCreatedAt returns the PR creation time if included
+func (r *UniversalPRResponse) GetCreatedAt() string {
+	if r.Data.Repository.PullRequest.CreatedAt != nil {
+		return *r.Data.Repository.PullRequest.CreatedAt
+	}
+	return ""
+}
+
+// GetLastPushAt returns the last push time if included
+func (r *UniversalPRResponse) GetLastPushAt() string {
+	if r.Data.Repository.PullRequest.TimelineItems == nil {
+		return ""
+	}
+	
+	// Look for the last push event
+	for i := len(r.Data.Repository.PullRequest.TimelineItems.Nodes) - 1; i >= 0; i-- {
+		node := r.Data.Repository.PullRequest.TimelineItems.Nodes[i]
+		if nodeMap, ok := node.(map[string]interface{}); ok {
+			typename, _ := nodeMap["__typename"].(string)
+			
+			switch typename {
+			case "HeadRefForcePushedEvent":
+				if createdAt, ok := nodeMap["createdAt"].(string); ok {
+					return createdAt
+				}
+			case "PullRequestCommit":
+				if commit, ok := nodeMap["commit"].(map[string]interface{}); ok {
+					if committedDate, ok := commit["committedDate"].(string); ok {
+						return committedDate
+					}
+				}
+			}
+		}
+	}
+	
+	// Fallback to creation date if no push events found
+	return r.GetCreatedAt()
 }
 
 // FetchPRData executes the universal PR query with given configuration
