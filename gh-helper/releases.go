@@ -142,7 +142,7 @@ func analyzeRelease(cmd *cobra.Command, args []string) error {
 	}
 
 	if filters == 0 {
-		return fmt.Errorf("must specify --milestone, --since/--until, or --pr-range")
+		return fmt.Errorf("must specify one of --milestone, --since/--until, or --pr-range")
 	}
 	if filters > 1 {
 		return fmt.Errorf("specify only one of --milestone, --since/--until, or --pr-range")
@@ -304,7 +304,7 @@ func analyzePRs(prs []PRData) ReleaseAnalysis {
 				Number:        pr.Number,
 				Title:         pr.Title,
 				CurrentLabels: pr.Labels,
-				Issue:         "Has user-facing documentation but marked as ignore",
+				Issue:         "User-facing documentation marked as ignore",
 				Suggestion:    "Remove 'ignore-for-release' label",
 			})
 		}
@@ -611,7 +611,9 @@ func (c *GitHubClient) GetPRsByMilestone(milestone string, includeDrafts bool) (
 
 		// Extract labels
 		for _, label := range node.Labels.Nodes {
-			pr.Labels = append(pr.Labels, label.Name)
+			if label.Name != "" {
+				pr.Labels = append(pr.Labels, label.Name)
+			}
 		}
 
 		// Extract linked issues
@@ -731,7 +733,9 @@ func (c *GitHubClient) GetPRsByDateRange(since, until time.Time, includeDrafts b
 
 		// Extract labels
 		for _, label := range node.Labels.Nodes {
-			pr.Labels = append(pr.Labels, label.Name)
+			if label.Name != "" {
+				pr.Labels = append(pr.Labels, label.Name)
+			}
 		}
 
 		// Extract linked issues
@@ -801,14 +805,15 @@ func (c *GitHubClient) GetPRsByRange(start, end int, includeDrafts bool) ([]PRDa
 
 		responseData, err := c.RunGraphQLQueryWithVariables(query, variables)
 		if err != nil {
-			// Skip if PR doesn't exist
+			// Log error and skip if PR doesn't exist
+			fmt.Printf("Error fetching PR #%d: %v\n", i, err)
 			continue
 		}
 
 		var response struct {
 			Data struct {
 				Repository struct {
-					PullRequest struct {
+					PullRequest *struct {
 						Number    int    `json:"number"`
 						Title     string `json:"title"`
 						Body      string `json:"body"`
@@ -843,8 +848,8 @@ func (c *GitHubClient) GetPRsByRange(start, end int, includeDrafts bool) ([]PRDa
 
 		pr := response.Data.Repository.PullRequest
 		
-		// Skip if not merged
-		if pr.MergedAt == "" {
+		// Skip if PR doesn't exist or not merged
+		if pr == nil || pr.MergedAt == "" {
 			continue
 		}
 
