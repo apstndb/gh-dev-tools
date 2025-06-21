@@ -45,11 +45,12 @@ make build              # Build gh-helper tool
 ./bin/gh-helper reviews wait <PR> --request-summary   # Request and wait for Gemini summary
 ./bin/gh-helper threads reply <ID1> <ID2> <ID3> --resolve  # Bulk reply to threads
 
-# Issue and sub-issue management
+## Issue and sub-issue management
 ./bin/gh-helper issues show <number>               # Show basic issue information
 ./bin/gh-helper issues show <number> --include-sub # Show issue with sub-issues and statistics
 ./bin/gh-helper issues edit <number> --parent <parent>  # Add issue as sub-issue
 ./bin/gh-helper issues edit <number> --parent <parent> --overwrite  # Move to new parent
+./bin/gh-helper issues edit <number> --unlink-parent  # Remove parent relationship
 ```
 
 ## Core Architecture
