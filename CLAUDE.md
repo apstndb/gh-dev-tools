@@ -111,6 +111,7 @@ git commit -m "fix: address review feedback"
 ### Automated Review Management
 - **Gemini Code Assist**: Provides automatic initial review but requires explicit request for follow-up reviews
 - **Initial PR creation**: Gemini automatically reviews new PRs, no `--request-review` flag needed initially
+- **No manual reviewer assignment needed**: Do NOT add gemini-code-assist as a reviewer using `gh pr edit --add-reviewer` - Gemini reviews PRs automatically
 - **Follow-up reviews**: Use `--request-review` flag or comment `/gemini review` for re-review after significant changes
 - **Important**: `--request-review` is only needed for subsequent reviews, not for newly created PRs
 
