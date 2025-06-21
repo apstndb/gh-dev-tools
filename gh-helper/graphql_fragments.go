@@ -262,6 +262,37 @@ fragment LabelableFields on Labelable {
   }
 }`
 
+	// Issue fragments
+	IssueFieldsFragment = `
+fragment IssueFields on Issue {
+  number
+  title
+  state
+  body
+  url
+  createdAt
+  updatedAt
+  labels(first: 20) {
+    nodes {
+      name
+    }
+  }
+  assignees(first: 10) {
+    nodes {
+      login
+    }
+  }
+}`
+
+	SubIssueFieldsFragment = `
+fragment SubIssueFields on Issue {
+  id
+  number
+  title
+  state
+  closed
+}`
+
 	// Combined fragments for reuse
 	AllReviewFragments = PageInfoFragment + ReviewCommentFragment + ReviewFragment + ReviewConnectionFragment + PRMetadataFragment
 
@@ -271,9 +302,12 @@ fragment LabelableFields on Labelable {
 
 	AllLabelFragments = LabelFragment + LabelableFragment
 
+	AllIssueFragments = IssueFieldsFragment + SubIssueFieldsFragment
+
 	AllFragments = PageInfoFragment + ReviewCommentFragment + ReviewFragment + ReviewConnectionFragment + 
 		PRMetadataFragment + ThreadCommentFragment + ThreadFragment + ThreadConnectionFragment + 
-		StatusCheckRollupFragment + CommitWithStatusFragment + LabelFragment + LabelableFragment
+		StatusCheckRollupFragment + CommitWithStatusFragment + LabelFragment + LabelableFragment +
+		IssueFieldsFragment + SubIssueFieldsFragment
 )
 
 // Conversion functions between fragment types and domain types

@@ -573,36 +573,16 @@ func (c *GitHubClient) GetProjectID(name string) (string, error) {
 
 // GetIssueWithSubIssues fetches issue information with optional sub-issues
 func (c *GitHubClient) GetIssueWithSubIssues(number int, includeSub bool, detailed bool) (*IssueShowResult, error) {
-	// Use GraphQL @include directive for conditional field inclusion
-	query := `
+	// Build query with fragments
+	query := AllIssueFragments + `
 	query($owner: String!, $repo: String!, $number: Int!, $includeSub: Boolean!) {
 		repository(owner: $owner, name: $repo) {
 			issue(number: $number) {
-				number
-				title
-				state
-				body
-				url
-				createdAt
-				updatedAt
-				labels(first: 20) {
-					nodes {
-						name
-					}
-				}
-				assignees(first: 10) {
-					nodes {
-						login
-					}
-				}
+				...IssueFields
 				subIssues(first: 100) @include(if: $includeSub) {
 					totalCount
 					nodes {
-						id
-						number
-						title
-						state
-						closed
+						...SubIssueFields
 					}
 				}
 			}
