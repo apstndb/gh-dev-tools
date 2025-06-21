@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -692,4 +693,294 @@ func (c *GitHubClient) ResolvePRNumber(input string) (int, string, error) {
 	default:
 		return 0, "", fmt.Errorf("unknown input format type: %s", format.Type)
 	}
+}
+
+// GetLabelIDs fetches label IDs by names
+func (c *GitHubClient) GetLabelIDs(labelNames []string) (map[string]string, error) {
+	query := LabelFragment + `
+	query($owner: String!, $repo: String!) {
+		repository(owner: $owner, name: $repo) {
+			labels(first: 100) {
+				nodes {
+					...LabelFields
+				}
+			}
+		}
+	}`
+
+	variables := map[string]interface{}{
+		"owner": c.Owner,
+		"repo":  c.Repo,
+	}
+
+	var response GetLabelIDsResponse
+	responseBytes, err := c.RunGraphQLQueryWithVariables(query, variables)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch labels: %w", err)
+	}
+	if err := Unmarshal(responseBytes, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse labels response: %w", err)
+	}
+
+	labelMap := make(map[string]string, len(labelNames))
+	for _, label := range response.Data.Repository.Labels.Nodes {
+		labelMap[label.Name] = label.ID
+	}
+
+	return labelMap, nil
+}
+
+// GetLabelableInfo fetches information about an issue or PR
+func (c *GitHubClient) GetLabelableInfo(repoID string, itemType string, number int) (*LabelableInfo, error) {
+	// If itemType is empty, we need to auto-detect
+	if itemType == "" {
+		node, err := c.ResolveNumber(number)
+		if err != nil {
+			return nil, err
+		}
+		itemType = node.NodeType
+	}
+
+	query := LabelFragment + `
+	query($owner: String!, $repo: String!, $number: Int!) {
+		repository(owner: $owner, name: $repo) {
+			issue(number: $number) @include(if: $isIssue) {
+				id
+				number
+				title
+				__typename
+				labels(first: 100) {
+					nodes {
+						...LabelFields
+					}
+				}
+			}
+			pullRequest(number: $number) @include(if: $isPR) {
+				id
+				number
+				title
+				__typename
+				labels(first: 100) {
+					nodes {
+						...LabelFields
+					}
+				}
+			}
+		}
+	}`
+
+	isIssue := itemType == "Issue"
+	isPR := itemType == "PullRequest"
+
+	variables := map[string]interface{}{
+		"owner":   c.Owner,
+		"repo":    c.Repo,
+		"number":  number,
+		"isIssue": isIssue,
+		"isPR":    isPR,
+	}
+
+	var response GetLabelableInfoResponse
+	responseBytes, err := c.RunGraphQLQueryWithVariables(query, variables)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch item info: %w", err)
+	}
+	if err := Unmarshal(responseBytes, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse item info response: %w", err)
+	}
+
+	if isIssue && response.Data.Repository.Issue != nil {
+		return response.Data.Repository.Issue, nil
+	}
+	if isPR && response.Data.Repository.PullRequest != nil {
+		return response.Data.Repository.PullRequest, nil
+	}
+
+	return nil, fmt.Errorf("item #%d not found", number)
+}
+
+// SearchItemsByTitle searches for issues and PRs by title pattern
+func (c *GitHubClient) SearchItemsByTitle(repoID string, re *regexp.Regexp) ([]ItemToLabel, error) {
+	// GitHub search doesn't support regex, so we'll fetch all and filter
+	query := `
+	query($owner: String!, $repo: String!) {
+		repository(owner: $owner, name: $repo) {
+			issues(first: 100, states: OPEN) {
+				nodes {
+					id
+					number
+					title
+					__typename
+				}
+			}
+			pullRequests(first: 100, states: OPEN) {
+				nodes {
+					id
+					number
+					title
+					__typename
+				}
+			}
+		}
+	}`
+
+	variables := map[string]interface{}{
+		"owner": c.Owner,
+		"repo":  c.Repo,
+	}
+
+	var response struct {
+		Data struct {
+			Repository struct {
+				Issues struct {
+					Nodes []LabelableInfo `json:"nodes"`
+				} `json:"issues"`
+				PullRequests struct {
+					Nodes []LabelableInfo `json:"nodes"`
+				} `json:"pullRequests"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+
+	responseBytes, err := c.RunGraphQLQueryWithVariables(query, variables)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search items: %w", err)
+	}
+	if err := Unmarshal(responseBytes, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse search response: %w", err)
+	}
+
+	var items []ItemToLabel
+	
+	// Filter issues by regex
+	for _, issue := range response.Data.Repository.Issues.Nodes {
+		if re.MatchString(issue.Title) {
+			items = append(items, ItemToLabel{
+				ID:     issue.ID,
+				Number: issue.Number,
+				Type:   issue.TypeName,
+				Title:  issue.Title,
+			})
+		}
+	}
+
+	// Filter PRs by regex
+	for _, pr := range response.Data.Repository.PullRequests.Nodes {
+		if re.MatchString(pr.Title) {
+			items = append(items, ItemToLabel{
+				ID:     pr.ID,
+				Number: pr.Number,
+				Type:   pr.TypeName,
+				Title:  pr.Title,
+			})
+		}
+	}
+
+	return items, nil
+}
+
+// AddLabelsToItem adds labels to a single item
+func (c *GitHubClient) AddLabelsToItem(itemID string, labelIDs []string) (*LabelableInfo, error) {
+	mutation := AllLabelFragments + `
+	mutation($input: AddLabelsToLabelableInput!) {
+		addLabelsToLabelable(input: $input) {
+			labelable {
+				...LabelableFields
+			}
+		}
+	}`
+
+	variables := map[string]interface{}{
+		"input": map[string]interface{}{
+			"labelableId": itemID,
+			"labelIds":    labelIDs,
+		},
+	}
+
+	var response AddLabelsToLabelableResponse
+	responseBytes, err := c.RunGraphQLQueryWithVariables(mutation, variables)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add labels: %w", err)
+	}
+	if err := Unmarshal(responseBytes, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse add labels response: %w", err)
+	}
+
+	return &response.Data.AddLabelsToLabelable.Labelable, nil
+}
+
+// RemoveLabelsFromItem removes labels from a single item
+func (c *GitHubClient) RemoveLabelsFromItem(itemID string, labelIDs []string) (*LabelableInfo, error) {
+	mutation := AllLabelFragments + `
+	mutation($input: RemoveLabelsFromLabelableInput!) {
+		removeLabelsFromLabelable(input: $input) {
+			labelable {
+				...LabelableFields
+			}
+		}
+	}`
+
+	variables := map[string]interface{}{
+		"input": map[string]interface{}{
+			"labelableId": itemID,
+			"labelIds":    labelIDs,
+		},
+	}
+
+	var response RemoveLabelsFromLabelableResponse
+	responseBytes, err := c.RunGraphQLQueryWithVariables(mutation, variables)
+	if err != nil {
+		return nil, fmt.Errorf("failed to remove labels: %w", err)
+	}
+	if err := Unmarshal(responseBytes, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse remove labels response: %w", err)
+	}
+
+	return &response.Data.RemoveLabelsFromLabelable.Labelable, nil
+}
+
+// GetPRWithLinkedIssues fetches a PR with its linked issues
+func (c *GitHubClient) GetPRWithLinkedIssues(prNumber int) (*PRWithLinkedIssues, error) {
+	query := LabelFragment + `
+	query($owner: String!, $repo: String!, $prNumber: Int!) {
+		repository(owner: $owner, name: $repo) {
+			pullRequest(number: $prNumber) {
+				id
+				number
+				title
+				labels(first: 100) {
+					nodes {
+						...LabelFields
+					}
+				}
+				closingIssuesReferences(first: 10) {
+					nodes {
+						number
+						labels(first: 100) {
+							nodes {
+								...LabelFields
+							}
+						}
+					}
+				}
+			}
+		}
+	}`
+
+	variables := map[string]interface{}{
+		"owner":    c.Owner,
+		"repo":     c.Repo,
+		"prNumber": prNumber,
+	}
+
+	var response GetPRWithLinkedIssuesResponse
+	responseBytes, err := c.RunGraphQLQueryWithVariables(query, variables)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch PR with linked issues: %w", err)
+	}
+	if err := Unmarshal(responseBytes, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse PR with linked issues response: %w", err)
+	}
+
+	return &response.Data.Repository.PullRequest, nil
 }

@@ -208,6 +208,39 @@ fragment CommitWithStatusFields on Commit {
   }
 }`
 
+	// Label fragments
+	LabelFragment = `
+fragment LabelFields on Label {
+  id
+  name
+}`
+
+	LabelableFragment = `
+fragment LabelableFields on Labelable {
+  ... on Issue {
+    id
+    number
+    title
+    __typename
+    labels(first: 100) {
+      nodes {
+        ...LabelFields
+      }
+    }
+  }
+  ... on PullRequest {
+    id
+    number
+    title
+    __typename
+    labels(first: 100) {
+      nodes {
+        ...LabelFields
+      }
+    }
+  }
+}`
+
 	// Combined fragments for reuse
 	AllReviewFragments = PageInfoFragment + ReviewCommentFragment + ReviewFragment + ReviewConnectionFragment + PRMetadataFragment
 
@@ -215,9 +248,11 @@ fragment CommitWithStatusFields on Commit {
 
 	AllStatusFragments = StatusCheckRollupFragment + CommitWithStatusFragment
 
+	AllLabelFragments = LabelFragment + LabelableFragment
+
 	AllFragments = PageInfoFragment + ReviewCommentFragment + ReviewFragment + ReviewConnectionFragment + 
 		PRMetadataFragment + ThreadCommentFragment + ThreadFragment + ThreadConnectionFragment + 
-		StatusCheckRollupFragment + CommitWithStatusFragment
+		StatusCheckRollupFragment + CommitWithStatusFragment + LabelFragment + LabelableFragment
 )
 
 // Conversion functions between fragment types and domain types
