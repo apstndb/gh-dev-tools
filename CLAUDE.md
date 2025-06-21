@@ -259,4 +259,14 @@ Create issues with advanced features:
 ./bin/gh-helper issues create --title "Subtask: Implement Y" --body "Details" --parent 123
 ```
 
+### Issue Linking
+Create parent-child relationships between existing issues:
+```bash
+# Make issue #456 a sub-issue of #123
+./bin/gh-helper issues link-parent 456 --parent 123
+
+# Auto-detect child from branch name and link to parent #100
+./bin/gh-helper issues link-parent --parent 100
+```
+
 For detailed usage examples and API documentation, see the README.md file.

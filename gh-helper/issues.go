@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/spf13/cobra"
 )
@@ -586,21 +587,43 @@ type BasicIssueInfo struct {
 	State  string `json:"state"`
 }
 
+// issueNode represents the Issue node from GitHub GraphQL API responses
+type issueNode struct {
+	ID    string `json:"id"`
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	URL    string `json:"url"`
+	State  string `json:"state"`
+}
+
+// toBasicIssueInfo converts an issueNode to BasicIssueInfo
+func (n *issueNode) toBasicIssueInfo() BasicIssueInfo {
+	return BasicIssueInfo{
+		Number: n.Number,
+		Title:  n.Title,
+		URL:    n.URL,
+		State:  n.State,
+	}
+}
+
 func linkParent(cmd *cobra.Command, args []string) error {
 	// Get parent from flag
 	parentNumber, _ := cmd.Flags().GetInt("parent")
+	
+	// Create GitHub client
+	client := NewGitHubClient(owner, repo)
 	
 	// Get child from args or try to detect from branch
 	var childNumber int
 	if len(args) > 0 {
 		// Parse child issue number from args
-		_, err := fmt.Sscanf(args[0], "%d", &childNumber)
+		var err error
+		childNumber, err = strconv.Atoi(args[0])
 		if err != nil {
 			return fmt.Errorf("invalid child issue number: %s", args[0])
 		}
 	} else {
 		// Try to detect from branch name
-		client := NewGitHubClient(owner, repo)
 		detectedNumber, _, err := client.ResolvePRNumber("")
 		if err != nil {
 			return fmt.Errorf("no child issue specified and could not detect from branch: %w", err)
@@ -608,9 +631,6 @@ func linkParent(cmd *cobra.Command, args []string) error {
 		childNumber = detectedNumber
 		InfoMsg("Detected child issue #%d from current branch", childNumber).Print()
 	}
-
-	// Create GitHub client
-	client := NewGitHubClient(owner, repo)
 
 	// Fetch both issues to get their details and IDs
 	issueQuery := `
@@ -648,20 +668,8 @@ func linkParent(cmd *cobra.Command, args []string) error {
 	var response struct {
 		Data struct {
 			Repository struct {
-				Child *struct {
-					ID    string `json:"id"`
-					Number int    `json:"number"`
-					Title  string `json:"title"`
-					URL    string `json:"url"`
-					State  string `json:"state"`
-				} `json:"child"`
-				Parent *struct {
-					ID     string `json:"id"`
-					Number int    `json:"number"`
-					Title  string `json:"title"`
-					URL    string `json:"url"`
-					State  string `json:"state"`
-				} `json:"parent"`
+				Child  *issueNode `json:"child"`
+				Parent *issueNode `json:"parent"`
 			} `json:"repository"`
 		} `json:"data"`
 	}
@@ -717,18 +725,8 @@ func linkParent(cmd *cobra.Command, args []string) error {
 
 	// Build result
 	result := LinkParentResult{
-		Child: BasicIssueInfo{
-			Number: child.Number,
-			Title:  child.Title,
-			URL:    child.URL,
-			State:  child.State,
-		},
-		Parent: BasicIssueInfo{
-			Number: parent.Number,
-			Title:  parent.Title,
-			URL:    parent.URL,
-			State:  parent.State,
-		},
+		Child:        child.toBasicIssueInfo(),
+		Parent:       parent.toBasicIssueInfo(),
 		Relationship: "sub-issue",
 	}
 
