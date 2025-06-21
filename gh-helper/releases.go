@@ -123,11 +123,26 @@ type LinkedIssue struct {
 
 func analyzeRelease(cmd *cobra.Command, args []string) error {
 	// Get flags
-	milestone, _ := cmd.Flags().GetString("milestone")
-	since, _ := cmd.Flags().GetString("since")
-	until, _ := cmd.Flags().GetString("until")
-	prRange, _ := cmd.Flags().GetString("pr-range")
-	includeDrafts, _ := cmd.Flags().GetBool("include-drafts")
+	milestone, err := cmd.Flags().GetString("milestone")
+	if err != nil {
+		return fmt.Errorf("failed to get 'milestone' flag: %w", err)
+	}
+	since, err := cmd.Flags().GetString("since")
+	if err != nil {
+		return fmt.Errorf("failed to get 'since' flag: %w", err)
+	}
+	until, err := cmd.Flags().GetString("until")
+	if err != nil {
+		return fmt.Errorf("failed to get 'until' flag: %w", err)
+	}
+	prRange, err := cmd.Flags().GetString("pr-range")
+	if err != nil {
+		return fmt.Errorf("failed to get 'pr-range' flag: %w", err)
+	}
+	includeDrafts, err := cmd.Flags().GetBool("include-drafts")
+	if err != nil {
+		return fmt.Errorf("failed to get 'include-drafts' flag: %w", err)
+	}
 
 	// Validate input - must specify exactly one filter
 	filters := 0
@@ -153,7 +168,6 @@ func analyzeRelease(cmd *cobra.Command, args []string) error {
 
 	// Fetch PRs based on filter
 	var prs []PRData
-	var err error
 
 	switch {
 	case milestone != "":

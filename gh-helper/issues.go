@@ -106,14 +106,38 @@ type ParentIssueInfo struct {
 
 func createIssue(cmd *cobra.Command, args []string) error {
 	// Get flags
-	title, _ := cmd.Flags().GetString("title")
-	body, _ := cmd.Flags().GetString("body")
-	bodyFile, _ := cmd.Flags().GetString("body-file")
-	labels, _ := cmd.Flags().GetStringSlice("label")
-	assignees, _ := cmd.Flags().GetStringSlice("assignee")
-	milestone, _ := cmd.Flags().GetString("milestone")
-	project, _ := cmd.Flags().GetString("project")
-	parentNumber, _ := cmd.Flags().GetInt("parent")
+	title, err := cmd.Flags().GetString("title")
+	if err != nil {
+		return fmt.Errorf("failed to get 'title' flag: %w", err)
+	}
+	body, err := cmd.Flags().GetString("body")
+	if err != nil {
+		return fmt.Errorf("failed to get 'body' flag: %w", err)
+	}
+	bodyFile, err := cmd.Flags().GetString("body-file")
+	if err != nil {
+		return fmt.Errorf("failed to get 'body-file' flag: %w", err)
+	}
+	labels, err := cmd.Flags().GetStringSlice("label")
+	if err != nil {
+		return fmt.Errorf("failed to get 'label' flag: %w", err)
+	}
+	assignees, err := cmd.Flags().GetStringSlice("assignee")
+	if err != nil {
+		return fmt.Errorf("failed to get 'assignee' flag: %w", err)
+	}
+	milestone, err := cmd.Flags().GetString("milestone")
+	if err != nil {
+		return fmt.Errorf("failed to get 'milestone' flag: %w", err)
+	}
+	project, err := cmd.Flags().GetString("project")
+	if err != nil {
+		return fmt.Errorf("failed to get 'project' flag: %w", err)
+	}
+	parentNumber, err := cmd.Flags().GetInt("parent")
+	if err != nil {
+		return fmt.Errorf("failed to get 'parent' flag: %w", err)
+	}
 
 	// Handle body from file
 	if bodyFile != "" {
@@ -619,7 +643,10 @@ func linkParent(cmd *cobra.Command, args []string) error {
 	}
 	
 	// Get parent from flag
-	parentNumber, _ := cmd.Flags().GetInt("parent")
+	parentNumber, err := cmd.Flags().GetInt("parent")
+	if err != nil {
+		return fmt.Errorf("failed to get 'parent' flag: %w", err)
+	}
 	
 	// Create GitHub client
 	client := NewGitHubClient(owner, repo)

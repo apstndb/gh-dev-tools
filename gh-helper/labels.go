@@ -146,11 +146,26 @@ func addLabels(cmd *cobra.Command, args []string) error {
 		labels[i] = strings.TrimSpace(labels[i])
 	}
 
-	items, _ := cmd.Flags().GetString("items")
-	titlePattern, _ := cmd.Flags().GetString("title-pattern")
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	parallel, _ := cmd.Flags().GetBool("parallel")
-	maxConcurrent, _ := cmd.Flags().GetInt("max-concurrent")
+	items, err := cmd.Flags().GetString("items")
+	if err != nil {
+		return fmt.Errorf("failed to get 'items' flag: %w", err)
+	}
+	titlePattern, err := cmd.Flags().GetString("title-pattern")
+	if err != nil {
+		return fmt.Errorf("failed to get 'title-pattern' flag: %w", err)
+	}
+	dryRun, err := cmd.Flags().GetBool("dry-run")
+	if err != nil {
+		return fmt.Errorf("failed to get 'dry-run' flag: %w", err)
+	}
+	parallel, err := cmd.Flags().GetBool("parallel")
+	if err != nil {
+		return fmt.Errorf("failed to get 'parallel' flag: %w", err)
+	}
+	maxConcurrent, err := cmd.Flags().GetInt("max-concurrent")
+	if err != nil {
+		return fmt.Errorf("failed to get 'max-concurrent' flag: %w", err)
+	}
 
 	if items == "" && titlePattern == "" {
 		return fmt.Errorf("either --items or --title-pattern must be specified")
@@ -298,11 +313,26 @@ func removeLabels(cmd *cobra.Command, args []string) error {
 		labels[i] = strings.TrimSpace(labels[i])
 	}
 
-	items, _ := cmd.Flags().GetString("items")
-	titlePattern, _ := cmd.Flags().GetString("title-pattern")
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	parallel, _ := cmd.Flags().GetBool("parallel")
-	maxConcurrent, _ := cmd.Flags().GetInt("max-concurrent")
+	items, err := cmd.Flags().GetString("items")
+	if err != nil {
+		return fmt.Errorf("failed to get 'items' flag: %w", err)
+	}
+	titlePattern, err := cmd.Flags().GetString("title-pattern")
+	if err != nil {
+		return fmt.Errorf("failed to get 'title-pattern' flag: %w", err)
+	}
+	dryRun, err := cmd.Flags().GetBool("dry-run")
+	if err != nil {
+		return fmt.Errorf("failed to get 'dry-run' flag: %w", err)
+	}
+	parallel, err := cmd.Flags().GetBool("parallel")
+	if err != nil {
+		return fmt.Errorf("failed to get 'parallel' flag: %w", err)
+	}
+	maxConcurrent, err := cmd.Flags().GetInt("max-concurrent")
+	if err != nil {
+		return fmt.Errorf("failed to get 'max-concurrent' flag: %w", err)
+	}
 
 	if items == "" && titlePattern == "" {
 		return fmt.Errorf("either --items or --title-pattern must be specified")
@@ -447,8 +477,14 @@ func removeLabels(cmd *cobra.Command, args []string) error {
 }
 
 func addFromIssues(cmd *cobra.Command, args []string) error {
-	prNumber, _ := cmd.Flags().GetInt("pr")
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	prNumber, err := cmd.Flags().GetInt("pr")
+	if err != nil {
+		return fmt.Errorf("failed to get 'pr' flag: %w", err)
+	}
+	dryRun, err := cmd.Flags().GetBool("dry-run")
+	if err != nil {
+		return fmt.Errorf("failed to get 'dry-run' flag: %w", err)
+	}
 
 	client := NewGitHubClient(owner, repo)
 
