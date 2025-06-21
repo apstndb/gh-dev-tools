@@ -44,6 +44,12 @@ make build              # Build gh-helper tool
 ./bin/gh-helper reviews wait <PR> --async --detailed  # Get comprehensive PR status
 ./bin/gh-helper reviews wait <PR> --request-summary   # Request and wait for Gemini summary
 ./bin/gh-helper threads reply <ID1> <ID2> <ID3> --resolve  # Bulk reply to threads
+
+# Issue and sub-issue management
+./bin/gh-helper issues show <number>               # Show basic issue information
+./bin/gh-helper issues show <number> --include-sub # Show issue with sub-issues and statistics
+./bin/gh-helper issues edit <number> --parent <parent>  # Add issue as sub-issue
+./bin/gh-helper issues edit <number> --parent <parent> --overwrite  # Move to new parent
 ```
 
 ## Core Architecture
@@ -269,24 +275,29 @@ This command helps identify:
 - PRs that should have 'ignore-for-release' label
 - Inconsistent labeling patterns
 
-### Issue Creation
-Create issues with advanced features:
+### Issue Management
+Create and manage issues with advanced features:
 ```bash
 # Create issue with labels and assignee
 ./bin/gh-helper issues create --title "Add feature X" --body "Description" --label enhancement --assignee @me
 
 # Create sub-issue linked to parent
 ./bin/gh-helper issues create --title "Subtask: Implement Y" --body "Details" --parent 123
+
+# View issue with sub-issues
+./bin/gh-helper issues show 248 --include-sub
+./bin/gh-helper issues show 248 --include-sub --detailed  # Includes details for each sub-issue
+
+# Manage parent-child relationships
+./bin/gh-helper issues edit 456 --parent 123              # Add as sub-issue
+./bin/gh-helper issues edit 456 --parent 789 --overwrite  # Move to different parent
+./bin/gh-helper issues link-parent 456 --parent 123       # Deprecated: use edit command
 ```
 
-### Issue Linking
-Create parent-child relationships between existing issues:
-```bash
-# Make issue #456 a sub-issue of #123
-./bin/gh-helper issues link-parent 456 --parent 123
-
-# Make issue #789 a sub-issue of #456
-./bin/gh-helper issues link-parent 789 --parent 456
-```
+This provides comprehensive issue management including:
+- Viewing issues with sub-issue hierarchies and completion statistics
+- Creating parent-child relationships between issues
+- Moving sub-issues between different parents
+- Tracking completion percentages for project management
 
 For detailed usage examples and API documentation, see the README.md file.
