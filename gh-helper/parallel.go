@@ -6,6 +6,7 @@ import (
 
 // ExecuteParallel executes a function for each item in parallel with configurable concurrency
 // T is the input type, R is the result type
+// Note: This function ignores errors. Use ExecuteParallelWithErrors when error handling is needed.
 func ExecuteParallel[T any, R any](items []T, fn func(T) (R, error), parallel bool, maxConcurrent int) []R {
 	results := make([]R, len(items))
 	

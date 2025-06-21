@@ -722,7 +722,7 @@ func (c *GitHubClient) GetLabelIDs(labelNames []string) (map[string]string, erro
 		return nil, fmt.Errorf("failed to parse labels response: %w", err)
 	}
 
-	labelMap := make(map[string]string)
+	labelMap := make(map[string]string, len(labelNames))
 	for _, label := range response.Data.Repository.Labels.Nodes {
 		labelMap[label.Name] = label.ID
 	}

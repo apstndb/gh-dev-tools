@@ -123,11 +123,11 @@ func ParseItemSpec(spec string) (itemType string, number int, err error) {
 	}
 	if strings.HasPrefix(spec, "pull/") || strings.HasPrefix(spec, "pr/") {
 		itemType = "PullRequest"
-		if strings.HasPrefix(spec, "pull/") {
-			_, err = fmt.Sscanf(spec, "pull/%d", &number)
-		} else {
-			_, err = fmt.Sscanf(spec, "pr/%d", &number)
+		prefix := "pull/"
+		if strings.HasPrefix(spec, "pr/") {
+			prefix = "pr/"
 		}
+		_, err = fmt.Sscanf(spec, prefix+"%d", &number)
 		return
 	}
 	
