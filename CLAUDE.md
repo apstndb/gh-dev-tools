@@ -44,6 +44,13 @@ make build              # Build gh-helper tool
 ./bin/gh-helper reviews wait <PR> --async --detailed  # Get comprehensive PR status
 ./bin/gh-helper reviews wait <PR> --request-summary   # Request and wait for Gemini summary
 ./bin/gh-helper threads reply <ID1> <ID2> <ID3> --resolve  # Bulk reply to threads
+
+# Issue and sub-issue management
+./bin/gh-helper issues show <number>               # Show basic issue information
+./bin/gh-helper issues show <number> --include-sub # Show issue with sub-issues and statistics
+./bin/gh-helper issues edit <number> --parent <parent>  # Add issue as sub-issue
+./bin/gh-helper issues edit <number> --parent <parent> --overwrite  # Move to new parent
+./bin/gh-helper issues edit <number> --unlink-parent  # Remove parent relationship
 ```
 
 ## Core Architecture
@@ -230,21 +237,121 @@ go install github.com/apstndb/gh-dev-tools/gh-helper@latest
 
 ## GitHub GraphQL API Handling
 
+### Core Principles
+
 - **Null responses**: When PRs are deleted or permissions are missing, GraphQL returns null
 - **Pointer types required**: Use pointer structs to handle null responses properly
-- **Example**:
-  ```go
-  // Correct: pointer allows nil check
-  PullRequest *struct {
-      Number int `json:"number"`
-      // ...
-  } `json:"pullRequest"`
-  
-  if pr == nil {
-      // Handle missing PR
-      continue
+- **@include directives**: Use for conditional field inclusion to optimize queries
+- **Fragment reuse**: Define fragments for commonly used field sets to avoid repetition
+
+### Examples
+
+**Handling null responses**:
+```go
+// Correct: pointer allows nil check
+PullRequest *struct {
+    Number int `json:"number"`
+    // ...
+} `json:"pullRequest"`
+
+if pr == nil {
+    // Handle missing PR
+    continue
+}
+```
+
+**Using @include directives for conditional queries**:
+```graphql
+query($includeSubIssues: Boolean!, $includeDetails: Boolean!) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) {
+      ...IssueFields
+      trackedIssues(first: 100) @include(if: $includeSubIssues) {
+        nodes {
+          ...IssueFields
+          body @include(if: $includeDetails)
+          createdAt @include(if: $includeDetails)
+          author @include(if: $includeDetails) { login }
+        }
+      }
+    }
   }
-  ```
+}
+
+fragment IssueFields on Issue {
+  number
+  title
+  state
+  url
+}
+```
+
+**Benefits of this approach**:
+- Single query definition handles multiple use cases
+- Reduces network payload when features aren't needed
+- Improves performance by fetching only required data
+- Simplifies Go code by avoiding multiple query strings
+
+### Using GraphQL Fragments
+
+**Define reusable fragments in `graphql_fragments.go`**:
+```go
+const (
+    IssueFieldsFragment = `
+fragment IssueFields on Issue {
+  number
+  title
+  state
+  body
+  url
+  createdAt
+  updatedAt
+  labels(first: 20) {
+    nodes {
+      name
+    }
+  }
+  assignees(first: 10) {
+    nodes {
+      login
+    }
+  }
+}`
+
+    SubIssueFieldsFragment = `
+fragment SubIssueFields on Issue {
+  id
+  number
+  title
+  state
+  closed
+}`
+)
+```
+
+**Use fragments in queries**:
+```go
+query := AllIssueFragments + `
+query($owner: String!, $repo: String!, $number: Int!, $includeSub: Boolean!) {
+    repository(owner: $owner, name: $repo) {
+        issue(number: $number) {
+            ...IssueFields
+            subIssues(first: 100) @include(if: $includeSub) {
+                totalCount
+                nodes {
+                    ...SubIssueFields
+                }
+            }
+        }
+    }
+}`
+```
+
+**Benefits of fragments**:
+- Reduces code duplication across queries
+- Ensures consistent field selection
+- Makes queries more maintainable
+- Simplifies updates when field requirements change
 
 ## Additional Commands
 
@@ -269,24 +376,29 @@ This command helps identify:
 - PRs that should have 'ignore-for-release' label
 - Inconsistent labeling patterns
 
-### Issue Creation
-Create issues with advanced features:
+### Issue Management
+Create and manage issues with advanced features:
 ```bash
 # Create issue with labels and assignee
 ./bin/gh-helper issues create --title "Add feature X" --body "Description" --label enhancement --assignee @me
 
 # Create sub-issue linked to parent
 ./bin/gh-helper issues create --title "Subtask: Implement Y" --body "Details" --parent 123
+
+# View issue with sub-issues
+./bin/gh-helper issues show 248 --include-sub
+./bin/gh-helper issues show 248 --include-sub --detailed  # Includes details for each sub-issue
+
+# Manage parent-child relationships
+./bin/gh-helper issues edit 456 --parent 123              # Add as sub-issue
+./bin/gh-helper issues edit 456 --parent 789 --overwrite  # Move to different parent
+./bin/gh-helper issues link-parent 456 --parent 123       # Deprecated: use edit command
 ```
 
-### Issue Linking
-Create parent-child relationships between existing issues:
-```bash
-# Make issue #456 a sub-issue of #123
-./bin/gh-helper issues link-parent 456 --parent 123
-
-# Make issue #789 a sub-issue of #456
-./bin/gh-helper issues link-parent 789 --parent 456
-```
+This provides comprehensive issue management including:
+- Viewing issues with sub-issue hierarchies and completion statistics
+- Creating parent-child relationships between issues
+- Moving sub-issues between different parents
+- Tracking completion percentages for project management
 
 For detailed usage examples and API documentation, see the README.md file.
