@@ -238,6 +238,12 @@ const prNumberArgsHelp = `Arguments:
 - Plain number (123): PR number
 - Explicit PR (pull/123, pr/123): PR reference`
 
+// Gemini comment headers
+const (
+	geminiSummaryHeader = "## Summary of Changes"
+	geminiReviewHeader  = "## Code Review"
+)
+
 func init() {
 	// Configure Args for operational commands (using NewOperationalCommand)
 	waitReviewsCmd.Args = cobra.MaximumNArgs(1)
@@ -674,16 +680,22 @@ func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumb
 			}
 			
 			if contextName != "" {
-				required = append(required, contextName)
+				if context.IsRequired {
+					required = append(required, contextName)
+				}
 				
 				switch contextState {
 				case "SUCCESS":
 					passed = append(passed, contextName)
 				case "FAILURE", "ERROR":
 					failed = append(failed, contextName)
-					ciStatus = "fail"
+					if context.IsRequired {
+						ciStatus = "fail"
+					}
 				case "PENDING":
-					ciStatus = "pending"
+					if context.IsRequired {
+						ciStatus = "pending"
+					}
 				}
 			}
 		}
@@ -733,10 +745,10 @@ func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumb
 		for _, comment := range comments {
 			// Categorize comment
 			commentType := "comment"
-			if strings.Contains(comment.Body, "## Summary of Changes") {
+			if strings.Contains(comment.Body, geminiSummaryHeader) {
 				commentType = "summary"
 				analysis.HasSummaryComment = true
-			} else if strings.Contains(comment.Body, "## Code Review") {
+			} else if strings.Contains(comment.Body, geminiReviewHeader) {
 				commentType = "review"
 				analysis.HasReviewComment = true
 			}
@@ -805,7 +817,7 @@ func performRequestSummaryAndWait(cmd *cobra.Command, client *GitHubClient, prNu
 	// Check if there's already a summary in the last few comments
 	foundExistingSummary := false
 	for i := len(initialComments) - 1; i >= 0 && i >= len(initialComments)-3; i-- {
-		if strings.Contains(initialComments[i].Body, "## Summary of Changes") {
+		if strings.Contains(initialComments[i].Body, geminiSummaryHeader) {
 			foundExistingSummary = true
 			break
 		}
@@ -842,7 +854,7 @@ func performRequestSummaryAndWait(cmd *cobra.Command, client *GitHubClient, prNu
 		if len(comments) > initialCount {
 			// Check new comments for summary
 			for i := initialCount; i < len(comments); i++ {
-				if strings.Contains(comments[i].Body, "## Summary of Changes") {
+				if strings.Contains(comments[i].Body, geminiSummaryHeader) {
 					fmt.Printf("\n🎉 Summary posted by %s at %s\n", 
 						comments[i].Author.Login, comments[i].CreatedAt)
 					

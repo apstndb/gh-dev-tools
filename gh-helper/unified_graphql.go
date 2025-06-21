@@ -189,10 +189,12 @@ fragment StatusCheckRollupFields on StatusCheckRollup {
         name
         status
         conclusion
+        isRequired(pullRequestNumber: $prNumber)
       }
       ... on StatusContext {
         context
         state
+        isRequired(pullRequestNumber: $prNumber)
       }
     }
   }
@@ -441,10 +443,10 @@ func (r *UniversalPRResponse) GetLastPushAt() string {
 		return ""
 	}
 	
-	// Look for the last push event
-	for i := len(r.Data.Repository.PullRequest.TimelineItems.Nodes) - 1; i >= 0; i-- {
-		node := r.Data.Repository.PullRequest.TimelineItems.Nodes[i]
-		if nodeMap, ok := node.(map[string]interface{}); ok {
+	// The query uses `last: 1`, so we only need to check the first (and only) node
+	nodes := r.Data.Repository.PullRequest.TimelineItems.Nodes
+	if len(nodes) > 0 {
+		if nodeMap, ok := nodes[0].(map[string]interface{}); ok {
 			typename, _ := nodeMap["__typename"].(string)
 			
 			switch typename {

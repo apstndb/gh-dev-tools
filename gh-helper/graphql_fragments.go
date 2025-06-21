@@ -102,6 +102,7 @@ type StatusCheckRollupFields struct {
 // StatusContextInterface represents a status check context
 type StatusContextInterface struct {
 	Typename   string `json:"__typename"`
+	IsRequired bool   `json:"isRequired,omitempty"`
 	Context    string `json:"context,omitempty"`    // For StatusContext
 	State      string `json:"state,omitempty"`      // For StatusContext
 	Name       string `json:"name,omitempty"`       // For CheckRun
