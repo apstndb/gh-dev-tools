@@ -315,10 +315,11 @@ query($ids: [ID!]!, $excludeUrls: Boolean!) {
 }
 
 // ReplyToThread adds a reply to a review thread using GraphQL mutation
+// Uses addPullRequestReviewThreadReply to avoid creating pending reviews
 func (c *GitHubClient) ReplyToThread(threadID, body string) error {
 	mutation := `
 mutation($threadID: ID!, $body: String!) {
-  addPullRequestReviewComment(input: {
+  addPullRequestReviewThreadReply(input: {
     pullRequestReviewThreadId: $threadID
     body: $body
   }) {

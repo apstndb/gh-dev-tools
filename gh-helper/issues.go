@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/spf13/cobra"
 )
@@ -41,6 +42,23 @@ Examples:
 	createIssue,
 )
 
+var linkParentCmd = NewOperationalCommand(
+	"link-parent <child-issue> --parent <parent-issue>",
+	"Link a parent issue to an existing issue",
+	`Link an existing issue as a sub-issue of another issue.
+
+This command establishes a parent-child relationship between two existing issues,
+making the child issue a sub-issue of the parent issue.
+
+Examples:
+  # Make issue #456 a sub-issue of #123
+  gh-helper issues link-parent 456 --parent 123
+  
+  # Make issue #789 a sub-issue of #456
+  gh-helper issues link-parent 789 --parent 456`,
+	linkParent,
+)
+
 func init() {
 	// Configure flags for create command
 	createIssueCmd.Flags().StringP("title", "t", "", "Issue title (required)")
@@ -57,8 +75,15 @@ func init() {
 		panic(fmt.Sprintf("failed to mark title flag as required: %v", err))
 	}
 
+	// Configure flags for link-parent command
+	linkParentCmd.Flags().IntP("parent", "p", 0, "Parent issue number (required)")
+	if err := linkParentCmd.MarkFlagRequired("parent"); err != nil {
+		panic(fmt.Sprintf("failed to mark parent flag as required: %v", err))
+	}
+
 	// Add subcommands
 	issuesCmd.AddCommand(createIssueCmd)
+	issuesCmd.AddCommand(linkParentCmd)
 }
 
 // IssueCreationResult represents the result of issue creation
@@ -545,4 +570,176 @@ func (c *GitHubClient) AddSubIssue(childID string, parentNumber int) (*ParentIss
 		Number: parentNumber,
 		Title:  parentResponse.Data.Repository.Issue.Title,
 	}, nil
+}
+
+// LinkParentResult represents the result of linking parent-child issues
+type LinkParentResult struct {
+	Child        BasicIssueInfo `json:"child"`
+	Parent       BasicIssueInfo `json:"parent"`
+	Relationship string         `json:"relationship"`
+}
+
+// BasicIssueInfo represents basic issue information matching GitHub GraphQL API Issue type
+type BasicIssueInfo struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	URL    string `json:"url"`
+	State  string `json:"state"`
+}
+
+// issueNode represents the Issue node from GitHub GraphQL API responses
+type issueNode struct {
+	ID    string `json:"id"`
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	URL    string `json:"url"`
+	State  string `json:"state"`
+}
+
+// toBasicIssueInfo converts an issueNode to BasicIssueInfo
+func (n *issueNode) toBasicIssueInfo() BasicIssueInfo {
+	return BasicIssueInfo{
+		Number: n.Number,
+		Title:  n.Title,
+		URL:    n.URL,
+		State:  n.State,
+	}
+}
+
+func linkParent(cmd *cobra.Command, args []string) error {
+	// Validate required arguments
+	if len(args) < 1 {
+		return fmt.Errorf("child issue number is required")
+	}
+	
+	// Parse child issue number from args
+	childNumber, err := strconv.Atoi(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid child issue number: %s", args[0])
+	}
+	
+	// Get parent from flag
+	parentNumber, _ := cmd.Flags().GetInt("parent")
+	
+	// Create GitHub client
+	client := NewGitHubClient(owner, repo)
+
+	// Fetch both issues to get their details and IDs
+	issueQuery := `
+	query($owner: String!, $repo: String!, $childNumber: Int!, $parentNumber: Int!) {
+		repository(owner: $owner, name: $repo) {
+			child: issue(number: $childNumber) {
+				id
+				number
+				title
+				url
+				state
+			}
+			parent: issue(number: $parentNumber) {
+				id
+				number
+				title
+				url
+				state
+			}
+		}
+	}`
+
+	variables := map[string]interface{}{
+		"owner":        client.Owner,
+		"repo":         client.Repo,
+		"childNumber":  childNumber,
+		"parentNumber": parentNumber,
+	}
+
+	responseData, err := client.RunGraphQLQueryWithVariables(issueQuery, variables)
+	if err != nil {
+		return fmt.Errorf("failed to fetch issues: %w", err)
+	}
+
+	var response struct {
+		Data struct {
+			Repository struct {
+				Child  *issueNode `json:"child"`
+				Parent *issueNode `json:"parent"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(responseData, &response); err != nil {
+		return fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// Validate both issues exist
+	if response.Data.Repository.Child == nil {
+		return fmt.Errorf("child issue not found: #%d", childNumber)
+	}
+	if response.Data.Repository.Parent == nil {
+		return fmt.Errorf("parent issue not found: #%d", parentNumber)
+	}
+
+	child := response.Data.Repository.Child
+	parent := response.Data.Repository.Parent
+
+	// Create the sub-issue relationship using GitHub's addSubIssue mutation
+	mutation := `
+	mutation($parentId: ID!, $subIssueId: ID!) {
+		addSubIssue(input: {
+			issueId: $parentId
+			subIssueId: $subIssueId
+		}) {
+			issue {
+				id
+				number
+				title
+				url
+				state
+			}
+			subIssue {
+				id
+				number
+				title
+				url
+				state
+			}
+		}
+	}`
+
+	linkVariables := map[string]interface{}{
+		"parentId":   parent.ID,
+		"subIssueId": child.ID,
+	}
+
+	linkResponseData, err := client.RunGraphQLQueryWithVariables(mutation, linkVariables)
+	if err != nil {
+		return fmt.Errorf("failed to create sub-issue relationship: %w", err)
+	}
+
+	var linkResponse struct {
+		Data struct {
+			AddSubIssue struct {
+				Issue    issueNode `json:"issue"`
+				SubIssue issueNode `json:"subIssue"`
+			} `json:"addSubIssue"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(linkResponseData, &linkResponse); err != nil {
+		return fmt.Errorf("failed to parse link-parent response: %w", err)
+	}
+
+	// Build result from the mutation's response to ensure it's up-to-date
+	result := LinkParentResult{
+		Child:        linkResponse.Data.AddSubIssue.SubIssue.toBasicIssueInfo(),
+		Parent:       linkResponse.Data.AddSubIssue.Issue.toBasicIssueInfo(),
+		Relationship: "sub-issue",
+	}
+
+	// Output result
+	format := ResolveFormat(cmd)
+	output := map[string]interface{}{
+		"linkParent": result,
+	}
+
+	return EncodeOutput(os.Stdout, format, output)
 }

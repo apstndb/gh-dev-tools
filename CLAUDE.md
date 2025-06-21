@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 gh-dev-tools provides generic GitHub development tools optimized for AI assistants. This is a standalone repository extracted from spanner-mycli dev-tools to create reusable GitHub operations tools.
 
-## 🚨 CRITICAL REQUIREMENTS
+## CRITICAL REQUIREMENTS
 
 **Before ANY push to the repository**:
 1. **Always run `make check`** - runs test && lint (required for quality assurance)
@@ -137,6 +137,31 @@ git commit -m "fix: address review feedback"
 - **Follow-up reviews**: Use `--request-review` flag or comment `/gemini review` for re-review after significant changes
 - **Important**: `--request-review` is only needed for subsequent reviews, not for newly created PRs
 
+### Gemini Code Assist Review Structure
+- **CRITICAL**: Gemini posts multiple reviews on initial PRs:
+  1. **Summary**: Starts with `## Summary of Changes` (NOT a code review)
+  2. **Code Review**: Starts with `## Code Review` (actual review with threads)
+- **Both have state "COMMENTED"**: Cannot distinguish by state alone
+- **Essential verification steps**:
+  ```bash
+  # After reviews arrive, ALWAYS check for threads
+  ./bin/gh-helper reviews fetch <PR> --list-threads
+  
+  # If output is NOT empty, unresolved threads exist
+  # Get full details
+  ./bin/gh-helper reviews fetch <PR>
+  ```
+- **Common mistakes to avoid**:
+  - Assuming Summary completion means review is done
+  - Judging by preview text alone
+  - Skipping `--list-threads` verification
+- **Correct workflow**:
+  1. Wait for reviews with `reviews wait`
+  2. Check full review data with `reviews fetch <PR>`
+  3. Verify `reviewThreads.unresolvedCount` is 0
+  4. Or use `--list-threads` to list all unresolved threads
+  5. Address all threads before proceeding
+
 ### Pull Request Merging
 - **ALWAYS use Squash and Merge**: Never use regular merge or rebase merge
 - **Merge body content**: In the squash commit body, provide a summary of all changes from the branch HEAD
@@ -182,5 +207,66 @@ go install github.com/apstndb/gh-dev-tools/gh-helper@latest
 - **Output Formats**: Supports both YAML (default) and JSON output
 - **AI-First Design**: Interface optimized for AI assistant workflows
 - **Minimal Dependencies**: Uses goccy/go-yaml, spf13/cobra, and golang.org/x/net
+
+## GitHub GraphQL API Handling
+
+- **Null responses**: When PRs are deleted or permissions are missing, GraphQL returns null
+- **Pointer types required**: Use pointer structs to handle null responses properly
+- **Example**:
+  ```go
+  // Correct: pointer allows nil check
+  PullRequest *struct {
+      Number int `json:"number"`
+      // ...
+  } `json:"pullRequest"`
+  
+  if pr == nil {
+      // Handle missing PR
+      continue
+  }
+  ```
+
+## Additional Commands
+
+### Release Notes Analysis
+Analyze PRs for proper release notes categorization:
+```bash
+# Analyze by milestone
+./bin/gh-helper releases analyze --milestone v0.19.0
+
+# Analyze by date range
+./bin/gh-helper releases analyze --since 2024-01-01 --until 2024-01-31
+
+# Analyze by PR number range
+./bin/gh-helper releases analyze --pr-range 10-20
+
+# Output in markdown format
+./bin/gh-helper releases analyze --milestone v0.19.0 --format markdown
+```
+
+This command helps identify:
+- PRs missing classification labels (bug, enhancement, feature)
+- PRs that should have 'ignore-for-release' label
+- Inconsistent labeling patterns
+
+### Issue Creation
+Create issues with advanced features:
+```bash
+# Create issue with labels and assignee
+./bin/gh-helper issues create --title "Add feature X" --body "Description" --label enhancement --assignee @me
+
+# Create sub-issue linked to parent
+./bin/gh-helper issues create --title "Subtask: Implement Y" --body "Details" --parent 123
+```
+
+### Issue Linking
+Create parent-child relationships between existing issues:
+```bash
+# Make issue #456 a sub-issue of #123
+./bin/gh-helper issues link-parent 456 --parent 123
+
+# Make issue #789 a sub-issue of #456
+./bin/gh-helper issues link-parent 789 --parent 456
+```
 
 For detailed usage examples and API documentation, see the README.md file.
