@@ -316,6 +316,153 @@ type ReviewMonitorResponse struct {
 }
 
 // =============================================================================
+// Label Operation Types
+// =============================================================================
+
+// Label represents a GitHub label
+type Label struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// LabelableInfo represents common fields for Issues and PRs
+type LabelableInfo struct {
+	ID       string `json:"id"`
+	Number   int    `json:"number"`
+	Title    string `json:"title"`
+	TypeName string `json:"__typename"`
+	Labels   struct {
+		Nodes []Label `json:"nodes"`
+	} `json:"labels"`
+}
+
+// GetLabelIDsVariables for fetching label IDs by name
+type GetLabelIDsVariables struct {
+	Owner  string   `json:"owner"`
+	Repo   string   `json:"repo"`
+	Labels []string `json:"labels"`
+}
+
+// GetLabelIDsResponse contains label ID mapping
+type GetLabelIDsResponse struct {
+	Data struct {
+		Repository struct {
+			Labels struct {
+				Nodes []Label `json:"nodes"`
+			} `json:"labels"`
+		} `json:"repository"`
+	} `json:"data"`
+}
+
+// AddLabelsToLabelableInput for adding labels mutation
+type AddLabelsToLabelableInput struct {
+	ClientMutationID *string  `json:"clientMutationId,omitempty"`
+	LabelableID      string   `json:"labelableId"`
+	LabelIDs         []string `json:"labelIds"`
+}
+
+// AddLabelsToLabelableVariables for the mutation
+type AddLabelsToLabelableVariables struct {
+	Input AddLabelsToLabelableInput `json:"input"`
+}
+
+// AddLabelsToLabelableResponse from the mutation
+type AddLabelsToLabelableResponse struct {
+	Data struct {
+		AddLabelsToLabelable struct {
+			Labelable LabelableInfo `json:"labelable"`
+		} `json:"addLabelsToLabelable"`
+	} `json:"data"`
+}
+
+// RemoveLabelsFromLabelableInput for removing labels mutation
+type RemoveLabelsFromLabelableInput struct {
+	ClientMutationID *string  `json:"clientMutationId,omitempty"`
+	LabelableID      string   `json:"labelableId"`
+	LabelIDs         []string `json:"labelIds"`
+}
+
+// RemoveLabelsFromLabelableVariables for the mutation
+type RemoveLabelsFromLabelableVariables struct {
+	Input RemoveLabelsFromLabelableInput `json:"input"`
+}
+
+// RemoveLabelsFromLabelableResponse from the mutation
+type RemoveLabelsFromLabelableResponse struct {
+	Data struct {
+		RemoveLabelsFromLabelable struct {
+			Labelable LabelableInfo `json:"labelable"`
+		} `json:"removeLabelsFromLabelable"`
+	} `json:"data"`
+}
+
+// GetLabelableInfoVariables for fetching item details
+type GetLabelableInfoVariables struct {
+	Owner  string `json:"owner"`
+	Repo   string `json:"repo"`
+	Number int    `json:"number"`
+}
+
+// GetLabelableInfoResponse contains item details
+type GetLabelableInfoResponse struct {
+	Data struct {
+		Repository struct {
+			Issue       *LabelableInfo `json:"issue"`
+			PullRequest *LabelableInfo `json:"pullRequest"`
+		} `json:"repository"`
+	} `json:"data"`
+}
+
+// SearchItemsByTitleVariables for searching by pattern
+type SearchItemsByTitleVariables struct {
+	Query string `json:"query"`
+	Limit int    `json:"limit"`
+}
+
+// SearchItemsByTitleResponse contains search results
+type SearchItemsByTitleResponse struct {
+	Data struct {
+		Search struct {
+			Nodes []LabelableInfo `json:"nodes"`
+		} `json:"search"`
+	} `json:"data"`
+}
+
+// PRWithLinkedIssues for add-from-issues command
+type PRWithLinkedIssues struct {
+	ID     string `json:"id"`
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	Labels struct {
+		Nodes []Label `json:"nodes"`
+	} `json:"labels"`
+	ClosingIssuesReferences struct {
+		Nodes []struct {
+			Number int `json:"number"`
+			Labels struct {
+				Nodes []Label `json:"nodes"`
+			} `json:"labels"`
+		} `json:"nodes"`
+	} `json:"closingIssuesReferences"`
+}
+
+// GetPRWithLinkedIssuesVariables for fetching PR with issues
+type GetPRWithLinkedIssuesVariables struct {
+	Owner    string `json:"owner"`
+	Repo     string `json:"repo"`
+	PRNumber int    `json:"prNumber"`
+}
+
+// GetPRWithLinkedIssuesResponse contains PR and linked issues
+type GetPRWithLinkedIssuesResponse struct {
+	Data struct {
+		Repository struct {
+			PullRequest PRWithLinkedIssues `json:"pullRequest"`
+		} `json:"repository"`
+	} `json:"data"`
+}
+
+// =============================================================================
 // Common Types
 // =============================================================================
 
