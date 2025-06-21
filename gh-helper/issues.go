@@ -573,75 +573,47 @@ func (c *GitHubClient) GetProjectID(name string) (string, error) {
 
 // GetIssueWithSubIssues fetches issue information with optional sub-issues
 func (c *GitHubClient) GetIssueWithSubIssues(number int, includeSub bool, detailed bool) (*IssueShowResult, error) {
-	var query string
-	if !includeSub {
-		// Basic issue query without sub-issues
-		query = `
-		query($owner: String!, $repo: String!, $number: Int!) {
-			repository(owner: $owner, name: $repo) {
-				issue(number: $number) {
-					number
-					title
-					state
-					body
-					url
-					createdAt
-					updatedAt
-					labels(first: 20) {
-						nodes {
-							name
-						}
+	// Use GraphQL @include directive for conditional field inclusion
+	query := `
+	query($owner: String!, $repo: String!, $number: Int!, $includeSub: Boolean!) {
+		repository(owner: $owner, name: $repo) {
+			issue(number: $number) {
+				number
+				title
+				state
+				body
+				url
+				createdAt
+				updatedAt
+				labels(first: 20) {
+					nodes {
+						name
 					}
-					assignees(first: 10) {
-						nodes {
-							login
-						}
+				}
+				assignees(first: 10) {
+					nodes {
+						login
+					}
+				}
+				subIssues(first: 100) @include(if: $includeSub) {
+					totalCount
+					nodes {
+						id
+						number
+						title
+						state
+						closed
 					}
 				}
 			}
-		}`
-	} else {
-		// Query with sub-issues
-		query = `
-		query($owner: String!, $repo: String!, $number: Int!) {
-			repository(owner: $owner, name: $repo) {
-				issue(number: $number) {
-					number
-					title
-					state
-					body
-					url
-					createdAt
-					updatedAt
-					labels(first: 20) {
-						nodes {
-							name
-						}
-					}
-					assignees(first: 10) {
-						nodes {
-							login
-						}
-					}
-					subIssues(first: 100) {
-						totalCount
-						nodes {
-							id
-							number
-							title
-							state
-							closed
-						}
-					}
-				}
-			}
-		}`
-	}
+		}
+	}`
 
 	variables := map[string]interface{}{
-		"owner":  c.Owner,
-		"repo":   c.Repo,
-		"number": number,
+		"owner":      c.Owner,
+		"repo":       c.Repo,
+		"number":     number,
+		"includeSub": includeSub,
 	}
 
 	responseData, err := c.RunGraphQLQueryWithVariables(query, variables)
