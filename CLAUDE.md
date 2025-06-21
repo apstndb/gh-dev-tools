@@ -265,8 +265,8 @@ Create parent-child relationships between existing issues:
 # Make issue #456 a sub-issue of #123
 ./bin/gh-helper issues link-parent 456 --parent 123
 
-# Auto-detect child from branch name and link to parent #100
-./bin/gh-helper issues link-parent --parent 100
+# Make issue #789 a sub-issue of #456
+./bin/gh-helper issues link-parent 789 --parent 456
 ```
 
 For detailed usage examples and API documentation, see the README.md file.

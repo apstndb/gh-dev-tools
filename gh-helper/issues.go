@@ -54,8 +54,8 @@ Examples:
   # Make issue #456 a sub-issue of #123
   gh-helper issues link-parent 456 --parent 123
   
-  # Link with current branch's issue as child (if branch follows issue-123 pattern)
-  gh-helper issues link-parent --parent 100`,
+  # Make issue #789 a sub-issue of #456
+  gh-helper issues link-parent 789 --parent 456`,
 	linkParent,
 )
 
@@ -607,30 +607,22 @@ func (n *issueNode) toBasicIssueInfo() BasicIssueInfo {
 }
 
 func linkParent(cmd *cobra.Command, args []string) error {
+	// Validate required arguments
+	if len(args) < 1 {
+		return fmt.Errorf("child issue number is required")
+	}
+	
+	// Parse child issue number from args
+	childNumber, err := strconv.Atoi(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid child issue number: %s", args[0])
+	}
+	
 	// Get parent from flag
 	parentNumber, _ := cmd.Flags().GetInt("parent")
 	
 	// Create GitHub client
 	client := NewGitHubClient(owner, repo)
-	
-	// Get child from args or try to detect from branch
-	var childNumber int
-	if len(args) > 0 {
-		// Parse child issue number from args
-		var err error
-		childNumber, err = strconv.Atoi(args[0])
-		if err != nil {
-			return fmt.Errorf("invalid child issue number: %s", args[0])
-		}
-	} else {
-		// Try to detect from branch name
-		detectedNumber, _, err := client.ResolvePRNumber("")
-		if err != nil {
-			return fmt.Errorf("no child issue specified and could not detect from branch: %w", err)
-		}
-		childNumber = detectedNumber
-		InfoMsg("Detected child issue #%d from current branch", childNumber).Print()
-	}
 
 	// Fetch both issues to get their details and IDs
 	issueQuery := `
@@ -718,15 +710,28 @@ func linkParent(cmd *cobra.Command, args []string) error {
 		"subIssueId": child.ID,
 	}
 
-	_, err = client.RunGraphQLQueryWithVariables(mutation, linkVariables)
+	linkResponseData, err := client.RunGraphQLQueryWithVariables(mutation, linkVariables)
 	if err != nil {
 		return fmt.Errorf("failed to create sub-issue relationship: %w", err)
 	}
 
-	// Build result
+	var linkResponse struct {
+		Data struct {
+			AddSubIssue struct {
+				Issue    issueNode `json:"issue"`
+				SubIssue issueNode `json:"subIssue"`
+			} `json:"addSubIssue"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(linkResponseData, &linkResponse); err != nil {
+		return fmt.Errorf("failed to parse link-parent response: %w", err)
+	}
+
+	// Build result from the mutation's response to ensure it's up-to-date
 	result := LinkParentResult{
-		Child:        child.toBasicIssueInfo(),
-		Parent:       parent.toBasicIssueInfo(),
+		Child:        linkResponse.Data.AddSubIssue.SubIssue.toBasicIssueInfo(),
+		Parent:       linkResponse.Data.AddSubIssue.Issue.toBasicIssueInfo(),
 		Relationship: "sub-issue",
 	}
 

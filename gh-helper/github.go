@@ -617,7 +617,7 @@ func ParseInput(input string) (*InputFormat, error) {
 }
 
 // ResolvePRNumber resolves PR number using multiple strategies:
-// 1. If empty input, use current branch's PR (via gh pr view)
+// 1. If empty input, find PR associated with current git branch (via GraphQL search by branch name)
 // 2. If explicit format (issues/N, pull/N), skip auto-detection
 // 3. If plain number, auto-detect issue vs PR
 func (c *GitHubClient) ResolvePRNumber(input string) (int, string, error) {
