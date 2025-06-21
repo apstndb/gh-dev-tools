@@ -13,20 +13,21 @@ import (
 type OutputFormat string
 
 const (
-	FormatYAML OutputFormat = "yaml"
-	FormatJSON OutputFormat = "json"
+	FormatYAML     OutputFormat = "yaml"
+	FormatJSON     OutputFormat = "json"
+	FormatMarkdown OutputFormat = "markdown"
 )
 
 // IsValid checks if the format is supported
 func (f OutputFormat) IsValid() bool {
-	return f == FormatYAML || f == FormatJSON
+	return f == FormatYAML || f == FormatJSON || f == FormatMarkdown
 }
 
 // ParseFormat parses a string into an OutputFormat
 func ParseFormat(s string) (OutputFormat, error) {
 	format := OutputFormat(strings.ToLower(s))
 	if !format.IsValid() {
-		return "", fmt.Errorf("invalid format: %s (valid: yaml, json)", s)
+		return "", fmt.Errorf("invalid format: %s (valid: yaml, json, markdown)", s)
 	}
 	return format, nil
 }
