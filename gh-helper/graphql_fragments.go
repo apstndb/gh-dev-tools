@@ -43,6 +43,16 @@ type ReviewConnectionFields struct {
 	Nodes      []ReviewFields    `json:"nodes"`
 }
 
+// CommentFields corresponds to PR comments (issue comments)
+type CommentFields struct {
+	ID        string `json:"id"`
+	Author    struct {
+		Login string `json:"login"`
+	} `json:"author"`
+	Body      string `json:"body"`
+	CreatedAt string `json:"createdAt"`
+}
+
 // PRMetadataFields corresponds to fragment PRMetadataFields on PullRequest
 type PRMetadataFields struct {
 	Number           int    `json:"number"`
@@ -85,8 +95,19 @@ type ThreadConnectionFields struct {
 type StatusCheckRollupFields struct {
 	State    string `json:"state"`
 	Contexts struct {
-		Nodes []interface{} `json:"nodes"`
+		Nodes []StatusContextInterface `json:"nodes"`
 	} `json:"contexts"`
+}
+
+// StatusContextInterface represents a status check context
+type StatusContextInterface struct {
+	Typename   string `json:"__typename"`
+	IsRequired bool   `json:"isRequired,omitempty"`
+	Context    string `json:"context,omitempty"`    // For StatusContext
+	State      string `json:"state,omitempty"`      // For StatusContext
+	Name       string `json:"name,omitempty"`       // For CheckRun
+	Status     string `json:"status,omitempty"`     // For CheckRun
+	Conclusion string `json:"conclusion,omitempty"` // For CheckRun
 }
 
 // CommitWithStatusFields corresponds to fragment CommitWithStatusFields on Commit

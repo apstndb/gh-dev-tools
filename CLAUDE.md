@@ -39,6 +39,11 @@ make build              # Build gh-helper tool
 ./bin/gh-helper --help  # Show available commands
 ./bin/gh-helper reviews fetch <PR>    # Fetch review data
 ./bin/gh-helper threads reply <ID>    # Reply to review thread
+
+# New enhanced review features
+./bin/gh-helper reviews wait <PR> --async --detailed  # Get comprehensive PR status
+./bin/gh-helper reviews wait <PR> --request-summary   # Request and wait for Gemini summary
+./bin/gh-helper threads reply <ID1> <ID2> <ID3> --resolve  # Bulk reply to threads
 ```
 
 ## Core Architecture
@@ -98,6 +103,23 @@ git push origin HEAD  # Explicit push to current branch
 - **For threads not requiring changes**:
   1. Reply with explanation and resolve: `./bin/gh-helper threads reply <THREAD_ID> --message "Explanation here" --resolve`
 - **Batch resolve multiple threads**: `./bin/gh-helper threads resolve <THREAD_ID1> <THREAD_ID2> <THREAD_ID3>`
+- **Bulk reply with custom messages**: `./bin/gh-helper threads reply THREAD1:"Fixed typo" THREAD2:"Refactored" --commit-hash <HASH> --resolve`
+
+### Enhanced Review Workflow
+- **After addressing review feedback**: Always request another review and wait for it
+  ```bash
+  # After fixing all review comments
+  ./bin/gh-helper reviews wait <PR> --request-review
+  ```
+- **Check comprehensive PR status**: Use detailed status to ensure merge readiness
+  ```bash
+  ./bin/gh-helper reviews wait <PR> --async --detailed
+  # Check for: resolved threads, CI status, merge conflicts, required approvals
+  ```
+- **Request PR summary**: Get AI-generated summary for merge commits
+  ```bash
+  ./bin/gh-helper reviews wait <PR> --request-summary
+  ```
 
 ```bash
 # Example: Address feedback with commit reference

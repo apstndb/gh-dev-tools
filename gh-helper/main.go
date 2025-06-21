@@ -102,6 +102,8 @@ Use --exclude-reviews to wait for PR checks only.
 Use --exclude-checks to wait for reviews only.
 Use --request-review to automatically request Gemini review before waiting.
 Use --async to check reviews once and return immediately (non-blocking).
+Use --async --detailed to get comprehensive status data including PR comments.
+Use --request-summary to request and wait for Gemini summary.
 
 `+prNumberArgsHelp+`
 
@@ -226,6 +228,8 @@ var (
 	excludeChecks  bool
 	autoResolve    bool
 	async          bool
+	detailed       bool
+	requestSummary bool
 )
 
 // Common help text for PR number arguments
@@ -233,6 +237,12 @@ const prNumberArgsHelp = `Arguments:
 - No argument: Uses current branch's PR
 - Plain number (123): PR number
 - Explicit PR (pull/123, pr/123): PR reference`
+
+// Gemini comment headers
+const (
+	geminiSummaryHeader = "## Summary of Changes"
+	geminiReviewHeader  = "## Code Review"
+)
 
 func init() {
 	// Configure Args for operational commands (using NewOperationalCommand)
@@ -265,6 +275,8 @@ func init() {
 	waitReviewsCmd.Flags().BoolVar(&excludeChecks, "exclude-checks", false, "Exclude checks, wait for reviews only")
 	waitReviewsCmd.Flags().BoolVar(&requestReview, "request-review", false, "Request Gemini review before waiting")
 	waitReviewsCmd.Flags().BoolVar(&async, "async", false, "Check reviews once and return immediately (non-blocking, replaces 'reviews check' for review functionality)")
+	waitReviewsCmd.Flags().BoolVar(&detailed, "detailed", false, "Include comprehensive status data including PR comments (requires --async)")
+	waitReviewsCmd.Flags().BoolVar(&requestSummary, "request-summary", false, "Request Gemini summary and wait for it (mutually exclusive with --async)")
 
 	// Thread command flags
 	showThreadCmd.Flags().Bool("exclude-urls", false, "Exclude URLs from output")
@@ -298,6 +310,75 @@ func getCurrentUser() (string, error) {
 type ReviewState struct {
 	ID        string `json:"id"`
 	CreatedAt string `json:"createdAt"`
+}
+
+// DetailedStatus represents comprehensive PR status data
+type DetailedStatus struct {
+	PR       string           `json:"pr"`
+	Title    string           `json:"title"`
+	Timeline TimelineInfo     `json:"timeline"`
+	Checks   StatusChecks     `json:"checks"`
+}
+
+// TimelineInfo represents important timestamps
+type TimelineInfo struct {
+	PRCreated                string `json:"prCreated"`
+	LastPush                 string `json:"lastPush"`
+	LastReviewThreadResolved string `json:"lastReviewThreadResolved,omitempty"`
+}
+
+// StatusChecks represents all status checks
+type StatusChecks struct {
+	ReviewThreads   ThreadStatus         `json:"reviewThreads"`
+	Reviews         ReviewApprovalStatus `json:"reviews"`
+	CIStatus        CICheckStatus        `json:"ciStatus"`
+	Mergeability    MergeConflictStatus  `json:"mergeability"`
+	GeminiComments  CommentAnalysis      `json:"geminiComments,omitempty"`
+}
+
+// ThreadStatus represents review thread status
+type ThreadStatus struct {
+	Status     string `json:"status"`
+	Resolved   int    `json:"resolved"`
+	Unresolved int    `json:"unresolved"`
+}
+
+// ReviewApprovalStatus represents review approval status
+type ReviewApprovalStatus struct {
+	Status           string `json:"status"`
+	Required         int    `json:"required"`
+	Approved         int    `json:"approved"`
+	ChangesRequested int    `json:"changesRequested"`
+}
+
+// CICheckStatus represents CI/CD check status
+type CICheckStatus struct {
+	Status   string   `json:"status"`
+	Required []string `json:"required"`
+	Passed   []string `json:"passed"`
+	Failed   []string `json:"failed"`
+}
+
+// MergeConflictStatus represents merge conflict status
+type MergeConflictStatus struct {
+	Status    string `json:"status"`
+	Conflicts bool   `json:"conflicts"`
+	State     string `json:"state"`
+}
+
+// CommentAnalysis represents PR comment analysis
+type CommentAnalysis struct {
+	HasSummaryComment    bool             `json:"hasSummaryComment"`
+	HasReviewComment     bool             `json:"hasReviewComment"`
+	LastCommentIsSummary bool             `json:"lastCommentIsSummary"`
+	Comments             []PRCommentInfo  `json:"comments"`
+}
+
+// PRCommentInfo represents a PR comment
+type PRCommentInfo struct {
+	Type      string `json:"type"`
+	Timestamp string `json:"timestamp"`
+	Body      string `json:"body"`
 }
 
 // loadReviewState loads the last known review state from cache
@@ -457,6 +538,354 @@ func performAsyncReviewCheck(client *GitHubClient, prNumber string) error {
 	return nil
 }
 
+// performDetailedStatusCheck performs comprehensive status check including PR comments
+func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumber string) error {
+	StatusMsg("Collecting detailed status for PR #%s...", prNumber).Print()
+	
+	// Convert PR number to integer
+	prNumberInt, err := strconv.Atoi(prNumber)
+	if err != nil {
+		return fmt.Errorf("invalid PR number format: %w", err)
+	}
+	
+	// Fetch comprehensive PR data
+	config := NewPRQueryConfig(owner, repo, prNumberInt).
+		ForReviewsAndStatus().
+		WithThreads().
+		WithComments()
+	
+	response, err := client.FetchPRData(config)
+	if err != nil {
+		return fmt.Errorf("failed to fetch PR data: %w", err)
+	}
+	
+	// Build detailed status
+	status := DetailedStatus{
+		PR:    prNumber,
+		Title: response.GetTitle(),
+	}
+	
+	// Timeline information
+	status.Timeline = TimelineInfo{
+		PRCreated: response.GetCreatedAt(),
+		LastPush:  response.GetLastPushAt(),
+	}
+	
+	// Review threads status
+	threads := response.GetThreads()
+	resolved := 0
+	unresolved := 0
+	var lastResolvedTime string
+	
+	for _, thread := range threads {
+		if thread.IsResolved {
+			resolved++
+			// Track last resolved time
+			if len(thread.Comments.Nodes) > 0 {
+				lastComment := thread.Comments.Nodes[len(thread.Comments.Nodes)-1]
+				if lastResolvedTime == "" || lastComment.CreatedAt > lastResolvedTime {
+					lastResolvedTime = lastComment.CreatedAt
+				}
+			}
+		} else {
+			unresolved++
+		}
+	}
+	
+	status.Timeline.LastReviewThreadResolved = lastResolvedTime
+	
+	threadStatus := "pass"
+	if unresolved > 0 {
+		threadStatus = "fail"
+	}
+	status.Checks.ReviewThreads = ThreadStatus{
+		Status:     threadStatus,
+		Resolved:   resolved,
+		Unresolved: unresolved,
+	}
+	
+	// Reviews status
+	reviews := response.GetReviews()
+	approved := 0
+	changesRequested := 0
+	
+	// Track latest review per author
+	latestReviews := make(map[string]ReviewFields)
+	for _, review := range reviews {
+		if existing, ok := latestReviews[review.Author.Login]; !ok || review.CreatedAt > existing.CreatedAt {
+			latestReviews[review.Author.Login] = review
+		}
+	}
+	
+	// Count current state
+	for _, review := range latestReviews {
+		switch review.State {
+		case "APPROVED":
+			approved++
+		case "CHANGES_REQUESTED":
+			changesRequested++
+		}
+	}
+	
+	// TODO: Get required reviews from branch protection rules
+	// For now, assume 1 required
+	required := 1
+	
+	reviewStatus := "pass"
+	if changesRequested > 0 || approved < required {
+		reviewStatus = "fail"
+	}
+	
+	status.Checks.Reviews = ReviewApprovalStatus{
+		Status:           reviewStatus,
+		Required:         required,
+		Approved:         approved,
+		ChangesRequested: changesRequested,
+	}
+	
+	// Get merge status first as it's needed for CI status determination
+	mergeable, mergeState := response.GetMergeStatus()
+	
+	// CI Status
+	statusCheckRollup := response.GetStatusCheckRollup()
+	if statusCheckRollup != nil {
+		ciStatus := "pass"
+		var passed []string
+		var failed []string
+		var required []string
+		
+		// Extract check information from contexts
+		for _, context := range statusCheckRollup.Contexts.Nodes {
+			contextName := ""
+			contextState := ""
+			
+			switch context.Typename {
+			case "StatusContext":
+				contextName = context.Context
+				contextState = context.State
+			case "CheckRun":
+				contextName = context.Name
+				// Map CheckRun status/conclusion to state
+				if context.Conclusion != "" {
+					// CheckRun completed
+					switch context.Conclusion {
+					case "SUCCESS":
+						contextState = "SUCCESS"
+					case "FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED":
+						contextState = "FAILURE"
+					default:
+						contextState = "ERROR"
+					}
+				} else {
+					// CheckRun in progress
+					contextState = "PENDING"
+				}
+			}
+			
+			if contextName != "" {
+				if context.IsRequired {
+					required = append(required, contextName)
+				}
+				
+				switch contextState {
+				case "SUCCESS":
+					passed = append(passed, contextName)
+				case "FAILURE", "ERROR":
+					failed = append(failed, contextName)
+					if context.IsRequired {
+						ciStatus = "fail"
+					}
+				case "PENDING":
+					if context.IsRequired {
+						ciStatus = "pending"
+					}
+				}
+			}
+		}
+		
+		status.Checks.CIStatus = CICheckStatus{
+			Status:   ciStatus,
+			Required: required,
+			Passed:   passed,
+			Failed:   failed,
+		}
+	} else {
+		// No statusCheckRollup - determine if checks are pending or not configured
+		ciStatus := "pass"
+		
+		// Check merge state to determine if checks are pending
+		if mergeState == "BLOCKED" || mergeState == "UNKNOWN" {
+			ciStatus = "pending"
+		}
+		
+		status.Checks.CIStatus = CICheckStatus{
+			Status:   ciStatus,
+			Required: []string{},
+			Passed:   []string{},
+			Failed:   []string{},
+		}
+	}
+	
+	// Mergeability (already fetched above)
+	mergeStatus := "pass"
+	conflicts := false
+	
+	switch mergeable {
+	case "CONFLICTING":
+		mergeStatus = "fail"
+		conflicts = true
+	case "UNKNOWN":
+		mergeStatus = "pending"
+	}
+	
+	status.Checks.Mergeability = MergeConflictStatus{
+		Status:    mergeStatus,
+		Conflicts: conflicts,
+		State:     mergeState,
+	}
+	
+	// PR Comments Analysis
+	comments := response.GetComments()
+	if len(comments) > 0 {
+		analysis := CommentAnalysis{
+			Comments: []PRCommentInfo{},
+		}
+		
+		for _, comment := range comments {
+			// Categorize comment
+			commentType := "comment"
+			if strings.Contains(comment.Body, geminiSummaryHeader) {
+				commentType = "summary"
+				analysis.HasSummaryComment = true
+			} else if strings.Contains(comment.Body, geminiReviewHeader) {
+				commentType = "review"
+				analysis.HasReviewComment = true
+			}
+			
+			analysis.Comments = append(analysis.Comments, PRCommentInfo{
+				Type:      commentType,
+				Timestamp: comment.CreatedAt,
+				Body:      comment.Body,
+			})
+		}
+		
+		// Check if last comment is summary
+		if len(analysis.Comments) > 0 {
+			lastComment := analysis.Comments[len(analysis.Comments)-1]
+			analysis.LastCommentIsSummary = lastComment.Type == "summary"
+		}
+		
+		status.Checks.GeminiComments = analysis
+	}
+	
+	// Output the detailed status
+	format := ResolveFormat(cmd)
+	output := map[string]interface{}{
+		"detailedStatus": status,
+	}
+	
+	return EncodeOutput(os.Stdout, format, output)
+}
+
+// performRequestSummaryAndWait requests a Gemini summary and waits for it
+func performRequestSummaryAndWait(cmd *cobra.Command, client *GitHubClient, prNumber string) error {
+	fmt.Printf("📝 Requesting Gemini summary for PR #%s...\n", prNumber)
+	
+	// Post /gemini summary comment
+	if err := client.CreatePRComment(prNumber, "/gemini summary"); err != nil {
+		return fmt.Errorf("failed to request Gemini summary: %w", err)
+	}
+	
+	fmt.Println("✅ Gemini summary requested")
+	fmt.Println("⏳ Waiting for summary to be posted...")
+	
+	// Convert PR number to integer
+	prNumberInt, err := strconv.Atoi(prNumber)
+	if err != nil {
+		return fmt.Errorf("invalid PR number format: %w", err)
+	}
+	
+	// Calculate timeout
+	effectiveTimeout, timeoutDisplay, err := calculateEffectiveTimeout()
+	if err != nil {
+		return err
+	}
+	
+	fmt.Printf("🔄 Waiting for summary (timeout: %s)...\n", timeoutDisplay)
+	
+	// Get initial comments count
+	config := NewPRQueryConfig(owner, repo, prNumberInt).WithComments()
+	initialResponse, err := client.FetchPRData(config)
+	if err != nil {
+		return fmt.Errorf("failed to fetch initial PR data: %w", err)
+	}
+	
+	initialComments := initialResponse.GetComments()
+	initialCount := len(initialComments)
+	
+	// Check if there's already a summary in the last few comments
+	foundExistingSummary := false
+	for i := len(initialComments) - 1; i >= 0 && i >= len(initialComments)-3; i-- {
+		if strings.Contains(initialComments[i].Body, geminiSummaryHeader) {
+			foundExistingSummary = true
+			break
+		}
+	}
+	
+	if foundExistingSummary {
+		fmt.Println("✅ Found existing summary in recent comments")
+		return nil
+	}
+	
+	startTime := time.Now()
+	
+	// Poll for new summary comment
+	for {
+		// Check timeout
+		if time.Since(startTime) > effectiveTimeout {
+			fmt.Printf("\n⏰ Timeout reached (%v). Summary not posted yet.\n", effectiveTimeout)
+			return fmt.Errorf("timeout waiting for Gemini summary")
+		}
+		
+		// Wait before checking
+		time.Sleep(5 * time.Second)
+		
+		// Fetch updated comments
+		response, err := client.FetchPRData(config)
+		if err != nil {
+			fmt.Printf("Error fetching PR data: %v\n", err)
+			continue
+		}
+		
+		comments := response.GetComments()
+		
+		// Check for new comments
+		if len(comments) > initialCount {
+			// Check new comments for summary
+			for i := initialCount; i < len(comments); i++ {
+				if strings.Contains(comments[i].Body, geminiSummaryHeader) {
+					fmt.Printf("\n🎉 Summary posted by %s at %s\n", 
+						comments[i].Author.Login, comments[i].CreatedAt)
+					
+					// Show preview
+					preview := comments[i].Body
+					if len(preview) > 200 {
+						preview = preview[:200] + "..."
+					}
+					fmt.Printf("\nPreview:\n%s\n", preview)
+					
+					return nil
+				}
+			}
+		}
+		
+		elapsed := time.Since(startTime)
+		remaining := effectiveTimeout - elapsed
+		fmt.Printf("[%s] Waiting for summary... (remaining: %v)\n",
+			time.Now().Format("15:04:05"), remaining.Truncate(time.Second))
+	}
+}
+
 func waitForReviews(cmd *cobra.Command, args []string) error {
 	client := NewGitHubClient(owner, repo)
 	prNumber, err := resolvePRNumberFromArgs(args, client)
@@ -469,14 +898,32 @@ func waitForReviews(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot exclude both reviews and checks")
 	}
 	
+	// Validate mutually exclusive flags
+	if requestSummary && async {
+		return fmt.Errorf("--request-summary and --async are mutually exclusive")
+	}
+	
+	// Validate --detailed requires --async
+	if detailed && !async {
+		return fmt.Errorf("--detailed requires --async")
+	}
+	
 	// Handle async mode - single check and return (replaces reviews check)
 	if async {
-		if !excludeReviews {
+		if detailed {
+			InfoMsg("Running in async mode with detailed status").Print()
+			return performDetailedStatusCheck(cmd, client, prNumber)
+		} else if !excludeReviews {
 			InfoMsg("Running in async mode (single check, no waiting)").Print()
 			return performAsyncReviewCheck(client, prNumber)
 		} else {
 			return fmt.Errorf("async mode currently only supports review checking")
 		}
+	}
+	
+	// Handle request-summary mode
+	if requestSummary {
+		return performRequestSummaryAndWait(cmd, client, prNumber)
 	}
 	
 	// Determine what to wait for
