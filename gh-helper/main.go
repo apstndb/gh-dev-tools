@@ -114,9 +114,12 @@ Default timeout is 5 minutes, configurable with --timeout flag.`,
 
 
 var replyThreadsCmd = NewOperationalCommand(
-	"reply <thread-id>",
-	"Reply to a review thread",
-	`Reply to a GitHub pull request review thread.
+	"reply <thread-id> [<thread-id>...]",
+	"Reply to one or more review threads",
+	`Reply to GitHub pull request review threads with support for bulk operations.
+
+This command accepts one or more thread IDs, allowing you to reply to multiple
+threads with the same message or custom messages per thread.
 
 AI-FRIENDLY DESIGN (Issue #301): The reply text can be provided via:
 - --message flag for single-line responses
@@ -124,15 +127,21 @@ AI-FRIENDLY DESIGN (Issue #301): The reply text can be provided via:
 - --commit-hash for standardized commit references
 - --resolve to automatically resolve thread after replying
 
+BULK OPERATIONS: You can specify custom messages for individual threads using
+the format THREAD_ID:"Custom message" or use a uniform message for all threads.
+
 Examples:
   # Standard response with immediate resolution
   gh-helper threads reply PRRT_kwDONC6gMM5SU-GH --message "Fixed as suggested" --resolve
   
-  # Reference specific commit that addresses the feedback
-  gh-helper threads reply PRRT_kwDONC6gMM5SU-GH --commit-hash abc123 --message "Addressed all feedback" --resolve
+  # Reply to multiple threads with same message
+  gh-helper threads reply PRRT_1 PRRT_2 PRRT_3 --commit-hash abc123 --message "Fixed in commit" --resolve
   
-  # Quick commit reference with default message
-  gh-helper threads reply PRRT_kwDONC6gMM5SU-GH --commit-hash abc123 --resolve
+  # Reply with custom messages per thread
+  gh-helper threads reply PRRT_1:"Fixed the typo" PRRT_2:"Refactored as suggested" --resolve
+  
+  # Mix custom and default messages
+  gh-helper threads reply PRRT_1 PRRT_2:"Custom fix" PRRT_3 --message "Default fix" --resolve
   
   # Explain without code changes
   gh-helper threads reply PRRT_kwDONC6gMM5SU-GH --message "This is intentional behavior for compatibility" --resolve
@@ -228,7 +237,7 @@ const prNumberArgsHelp = `Arguments:
 func init() {
 	// Configure Args for operational commands (using NewOperationalCommand)
 	waitReviewsCmd.Args = cobra.MaximumNArgs(1)
-	replyThreadsCmd.Args = cobra.ExactArgs(1)
+	replyThreadsCmd.Args = cobra.MinimumNArgs(1)
 	// showThreadCmd already configured with MinimumNArgs(1) in command definition
 	resolveThreadCmd.Args = cobra.MinimumNArgs(1)
 	
@@ -249,6 +258,8 @@ func init() {
 	replyThreadsCmd.Flags().StringVar(&mentionUser, "mention", "", "Username to mention (without @)")
 	replyThreadsCmd.Flags().StringVar(&commitHash, "commit-hash", "", "Commit hash to reference in reply")
 	replyThreadsCmd.Flags().BoolVar(&autoResolve, "resolve", false, "Automatically resolve thread after replying")
+	replyThreadsCmd.Flags().Bool("parallel", true, "Execute mutations concurrently")
+	replyThreadsCmd.Flags().Int("max-concurrent", 5, "Maximum concurrent requests")
 
 	waitReviewsCmd.Flags().BoolVar(&excludeReviews, "exclude-reviews", false, "Exclude reviews, wait for PR checks only")
 	waitReviewsCmd.Flags().BoolVar(&excludeChecks, "exclude-checks", false, "Exclude checks, wait for reviews only")
@@ -981,50 +992,169 @@ func resolveThread(cmd *cobra.Command, args []string) error {
 	return EncodeOutput(os.Stdout, format, results)
 }
 
+// threadInput represents a thread ID with optional custom message
+type threadInput struct {
+	ID            string
+	CustomMessage string
+}
+
+// replyResult represents the result of a thread reply operation
+type replyResult struct {
+	ThreadID  string `json:"threadId"`
+	Status    string `json:"status"`
+	CommentID string `json:"commentId,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Message   string `json:"message"`
+	Resolved  bool   `json:"resolved,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
 func replyToThread(cmd *cobra.Command, args []string) error {
-	threadID := args[0]
-	
 	// Create GitHub client once for better performance (token caching)
 	client := NewGitHubClient(owner, repo)
 
-	var replyText string
+	// Parse thread IDs and custom messages
+	var threadInputs []threadInput
+	for _, arg := range args {
+		parts := strings.SplitN(arg, ":", 2)
+		input := threadInput{ID: parts[0]}
+		if len(parts) == 2 {
+			// Custom message provided
+			input.CustomMessage = parts[1]
+		}
+		threadInputs = append(threadInputs, input)
+	}
+
+	// Get default message from flag or stdin
+	var defaultMessage string
 	if message != "" {
-		replyText = message
-	} else {
-		// Read from stdin - AI assistants prefer this over temporary files (Issue #301 insight)
+		defaultMessage = message
+	} else if len(threadInputs) == 1 || hasCustomMessages(threadInputs) {
+		// Read from stdin if single thread or some threads have custom messages
 		stdinBytes, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return fmt.Errorf("failed to read from stdin: %w", err)
 		}
-		replyText = strings.TrimSpace(string(stdinBytes))
+		defaultMessage = strings.TrimSpace(string(stdinBytes))
 	}
 
-	if replyText == "" {
-		// If no message but commit hash is provided, use default message
-		if commitHash != "" {
-			replyText = "Thank you for the feedback!"
-		} else {
-			return fmt.Errorf("reply text cannot be empty (use --message or pipe content to stdin)")
+	// Validate that all threads have messages
+	for _, input := range threadInputs {
+		if input.CustomMessage == "" && defaultMessage == "" {
+			// If no message but commit hash is provided, use default message
+			if commitHash != "" {
+				defaultMessage = "Thank you for the feedback!"
+			} else {
+				return fmt.Errorf("no message provided for thread %s (use --message, custom message, or pipe content to stdin)", input.ID)
+			}
 		}
-	}
-
-	// Add commit reference if provided
-	if commitHash != "" {
-		replyText = fmt.Sprintf("%s\n\nFixed in commit %s.", strings.TrimSpace(replyText), commitHash)
-	}
-
-	// Add mention if provided
-	if mentionUser != "" {
-		replyText = fmt.Sprintf("@%s %s", mentionUser, replyText)
 	}
 
 	// Get output format using unified resolver
 	format := ResolveFormat(cmd)
 
-	// CRITICAL INSIGHT (Issue #301): GitHub GraphQL API quirk
-	// Do NOT include pullRequestReviewId field - causes null responses despite being marked "optional" in schema
-	// This was discovered during AI-friendly tool development and is documented in dev-docs/development-insights.md
-	
+	// Get parallel execution flags
+	parallel, _ := cmd.Flags().GetBool("parallel")
+	maxConcurrent, _ := cmd.Flags().GetInt("max-concurrent")
+
+	// Execute replies in parallel
+	results := ExecuteParallel(
+		threadInputs,
+		func(input threadInput) (replyResult, error) {
+			result := replyResult{
+				ThreadID: input.ID,
+				Status:   "success",
+			}
+
+			// Determine message to use
+			replyText := input.CustomMessage
+			if replyText == "" {
+				replyText = defaultMessage
+			}
+			result.Message = replyText
+
+			// Add commit reference if provided
+			if commitHash != "" {
+				replyText = fmt.Sprintf("%s\n\nFixed in commit %s.", strings.TrimSpace(replyText), commitHash)
+			}
+
+			// Add mention if provided
+			if mentionUser != "" {
+				replyText = fmt.Sprintf("@%s %s", mentionUser, replyText)
+			}
+
+			// Template variable expansion
+			replyText = strings.ReplaceAll(replyText, "{commit}", commitHash)
+
+			// Execute mutation
+			err := executeReplyMutation(client, input.ID, replyText, &result)
+			if err != nil {
+				result.Status = "failed"
+				result.Error = err.Error()
+				return result, nil
+			}
+
+			// Auto-resolve thread if requested
+			if autoResolve {
+				if err := client.ResolveThread(input.ID); err != nil {
+					// Don't fail - reply succeeded, resolution failed
+					result.Resolved = false
+				} else {
+					result.Resolved = true
+				}
+			}
+
+			return result, nil
+		},
+		parallel,
+		maxConcurrent,
+	)
+
+	// Single thread backward compatibility
+	if len(results) == 1 {
+		result := results[0]
+		if result.Status == "failed" {
+			return fmt.Errorf("failed to reply to thread: %s", result.Error)
+		}
+		
+		outputData := map[string]interface{}{
+			"threadId":  result.ThreadID,
+			"commentId": result.CommentID,
+			"url":       result.URL,
+			"repliedAt": time.Now().Format("2006-01-02T15:04:05Z07:00"),
+		}
+		if autoResolve {
+			outputData["isResolved"] = result.Resolved
+		}
+		return EncodeOutput(os.Stdout, format, outputData)
+	}
+
+	// Multiple threads - output bulk results
+	summary := map[string]interface{}{
+		"bulkReplyResults": results,
+		"summary": map[string]interface{}{
+			"total":      len(results),
+			"successful": countSuccessful(results),
+			"failed":     countFailed(results),
+			"resolved":   countResolved(results),
+		},
+	}
+
+	return EncodeOutput(os.Stdout, format, summary)
+}
+
+// Helper function to check if any thread has custom messages
+func hasCustomMessages(inputs []threadInput) bool {
+	for _, input := range inputs {
+		if input.CustomMessage != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// Helper function to execute reply mutation
+func executeReplyMutation(client *GitHubClient, threadID, body string, result *replyResult) error {
 	mutation := `
 mutation($threadID: ID!, $body: String!) {
   addPullRequestReviewThreadReply(input: {
@@ -1041,12 +1171,12 @@ mutation($threadID: ID!, $body: String!) {
 
 	variables := map[string]interface{}{
 		"threadID": threadID,
-		"body":     replyText,
+		"body":     body,
 	}
 
-	result, err := client.RunGraphQLQueryWithVariables(mutation, variables)
+	responseData, err := client.RunGraphQLQueryWithVariables(mutation, variables)
 	if err != nil {
-		return fmt.Errorf("failed to post reply: %w", err)
+		return err
 	}
 
 	var response struct {
@@ -1061,7 +1191,7 @@ mutation($threadID: ID!, $body: String!) {
 		} `json:"data"`
 	}
 
-	if err := Unmarshal(result, &response); err != nil {
+	if err := Unmarshal(responseData, &response); err != nil {
 		return fmt.Errorf("failed to parse response: %w", err)
 	}
 
@@ -1070,26 +1200,40 @@ mutation($threadID: ID!, $body: String!) {
 		return fmt.Errorf("reply posting failed: empty response")
 	}
 
-	// Build result structure using GitHub GraphQL field names
-	outputData := map[string]interface{}{
-		"threadId":   threadID,
-		"commentId":  comment.ID,
-		"url":        comment.URL,
-		"repliedAt":  time.Now().Format("2006-01-02T15:04:05Z07:00"),
-	}
+	result.CommentID = comment.ID
+	result.URL = comment.URL
+	
+	return nil
+}
 
-	// Auto-resolve thread if requested
-	if autoResolve {
-		if err := client.ResolveThread(threadID); err != nil {
-			// Don't return error - reply succeeded, resolution failed
-			outputData["isResolved"] = false
-			outputData["resolveError"] = err.Error()
-		} else {
-			outputData["isResolved"] = true
+// Helper functions for counting results
+func countSuccessful(results []replyResult) int {
+	count := 0
+	for _, r := range results {
+		if r.Status == "success" {
+			count++
 		}
 	}
+	return count
+}
 
-	// Output using unified encoder
-	return EncodeOutput(os.Stdout, format, outputData)
+func countFailed(results []replyResult) int {
+	count := 0
+	for _, r := range results {
+		if r.Status == "failed" {
+			count++
+		}
+	}
+	return count
+}
+
+func countResolved(results []replyResult) int {
+	count := 0
+	for _, r := range results {
+		if r.Resolved {
+			count++
+		}
+	}
+	return count
 }
 
