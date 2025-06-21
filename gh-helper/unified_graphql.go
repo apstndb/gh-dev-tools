@@ -447,17 +447,17 @@ func (r *UniversalPRResponse) GetLastPushAt() string {
 	nodes := r.Data.Repository.PullRequest.TimelineItems.Nodes
 	if len(nodes) > 0 {
 		if nodeMap, ok := nodes[0].(map[string]interface{}); ok {
-			typename, _ := nodeMap["__typename"].(string)
-			
-			switch typename {
-			case "HeadRefForcePushedEvent":
-				if createdAt, ok := nodeMap["createdAt"].(string); ok {
-					return createdAt
-				}
-			case "PullRequestCommit":
-				if commit, ok := nodeMap["commit"].(map[string]interface{}); ok {
-					if committedDate, ok := commit["committedDate"].(string); ok {
-						return committedDate
+			if typename, ok := nodeMap["__typename"].(string); ok {
+				switch typename {
+				case "HeadRefForcePushedEvent":
+					if createdAt, ok := nodeMap["createdAt"].(string); ok {
+						return createdAt
+					}
+				case "PullRequestCommit":
+					if commit, ok := nodeMap["commit"].(map[string]interface{}); ok {
+						if committedDate, ok := commit["committedDate"].(string); ok {
+							return committedDate
+						}
 					}
 				}
 			}

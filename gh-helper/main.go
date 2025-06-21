@@ -643,6 +643,9 @@ func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumb
 		ChangesRequested: changesRequested,
 	}
 	
+	// Get merge status first as it's needed for CI status determination
+	mergeable, mergeState := response.GetMergeStatus()
+	
 	// CI Status
 	statusCheckRollup := response.GetStatusCheckRollup()
 	if statusCheckRollup != nil {
@@ -707,17 +710,23 @@ func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumb
 			Failed:   failed,
 		}
 	} else {
-		// No CI checks configured
+		// No statusCheckRollup - determine if checks are pending or not configured
+		ciStatus := "pass"
+		
+		// Check merge state to determine if checks are pending
+		if mergeState == "BLOCKED" || mergeState == "UNKNOWN" {
+			ciStatus = "pending"
+		}
+		
 		status.Checks.CIStatus = CICheckStatus{
-			Status:   "pass",
+			Status:   ciStatus,
 			Required: []string{},
 			Passed:   []string{},
 			Failed:   []string{},
 		}
 	}
 	
-	// Mergeability
-	mergeable, mergeState := response.GetMergeStatus()
+	// Mergeability (already fetched above)
 	mergeStatus := "pass"
 	conflicts := false
 	
