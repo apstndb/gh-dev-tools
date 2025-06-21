@@ -237,21 +237,121 @@ go install github.com/apstndb/gh-dev-tools/gh-helper@latest
 
 ## GitHub GraphQL API Handling
 
+### Core Principles
+
 - **Null responses**: When PRs are deleted or permissions are missing, GraphQL returns null
 - **Pointer types required**: Use pointer structs to handle null responses properly
-- **Example**:
-  ```go
-  // Correct: pointer allows nil check
-  PullRequest *struct {
-      Number int `json:"number"`
-      // ...
-  } `json:"pullRequest"`
-  
-  if pr == nil {
-      // Handle missing PR
-      continue
+- **@include directives**: Use for conditional field inclusion to optimize queries
+- **Fragment reuse**: Define fragments for commonly used field sets to avoid repetition
+
+### Examples
+
+**Handling null responses**:
+```go
+// Correct: pointer allows nil check
+PullRequest *struct {
+    Number int `json:"number"`
+    // ...
+} `json:"pullRequest"`
+
+if pr == nil {
+    // Handle missing PR
+    continue
+}
+```
+
+**Using @include directives for conditional queries**:
+```graphql
+query($includeSubIssues: Boolean!, $includeDetails: Boolean!) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) {
+      ...IssueFields
+      trackedIssues(first: 100) @include(if: $includeSubIssues) {
+        nodes {
+          ...IssueFields
+          body @include(if: $includeDetails)
+          createdAt @include(if: $includeDetails)
+          author @include(if: $includeDetails) { login }
+        }
+      }
+    }
   }
-  ```
+}
+
+fragment IssueFields on Issue {
+  number
+  title
+  state
+  url
+}
+```
+
+**Benefits of this approach**:
+- Single query definition handles multiple use cases
+- Reduces network payload when features aren't needed
+- Improves performance by fetching only required data
+- Simplifies Go code by avoiding multiple query strings
+
+### Using GraphQL Fragments
+
+**Define reusable fragments in `graphql_fragments.go`**:
+```go
+const (
+    IssueFieldsFragment = `
+fragment IssueFields on Issue {
+  number
+  title
+  state
+  body
+  url
+  createdAt
+  updatedAt
+  labels(first: 20) {
+    nodes {
+      name
+    }
+  }
+  assignees(first: 10) {
+    nodes {
+      login
+    }
+  }
+}`
+
+    SubIssueFieldsFragment = `
+fragment SubIssueFields on Issue {
+  id
+  number
+  title
+  state
+  closed
+}`
+)
+```
+
+**Use fragments in queries**:
+```go
+query := AllIssueFragments + `
+query($owner: String!, $repo: String!, $number: Int!, $includeSub: Boolean!) {
+    repository(owner: $owner, name: $repo) {
+        issue(number: $number) {
+            ...IssueFields
+            subIssues(first: 100) @include(if: $includeSub) {
+                totalCount
+                nodes {
+                    ...SubIssueFields
+                }
+            }
+        }
+    }
+}`
+```
+
+**Benefits of fragments**:
+- Reduces code duplication across queries
+- Ensures consistent field selection
+- Makes queries more maintainable
+- Simplifies updates when field requirements change
 
 ## Additional Commands
 
