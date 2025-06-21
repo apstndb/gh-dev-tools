@@ -105,6 +105,26 @@ git push origin HEAD  # Explicit push to current branch
 - **Batch resolve multiple threads**: `./bin/gh-helper threads resolve <THREAD_ID1> <THREAD_ID2> <THREAD_ID3>`
 - **Bulk reply with custom messages**: `./bin/gh-helper threads reply THREAD1:"Fixed typo" THREAD2:"Refactored" --commit-hash <HASH> --resolve`
 
+### Handling Unresolved Review Feedback
+- **Before merging any PR**: Ensure ALL review threads are either:
+  - Implemented in the PR with corresponding commits
+  - Explicitly replied to with clear justification why not implemented
+  - Tracked in a follow-up issue for future work
+- **Create tracking issues**: For valid feedback that can't be addressed immediately:
+  ```bash
+  ./bin/gh-helper issues create --title "Address feedback from PR #X" --body "..."
+  ./bin/gh-helper threads reply <THREAD_ID> --message "Created issue #Y to track this improvement" --resolve
+  ```
+- **Audit merged PRs**: Periodically check for missed feedback:
+  ```bash
+  # Check recent merged PRs for unresolved threads
+  gh pr list --state merged --limit 10 | while read pr_num _; do
+    echo "Checking PR #$pr_num:"
+    ./bin/gh-helper reviews fetch $pr_num --list-threads
+  done
+  ```
+- **IMPORTANT**: Resolved threads without replies may contain valuable feedback that gets lost
+
 ### Enhanced Review Workflow
 - **After addressing review feedback**: Always request another review and wait for it
   ```bash
