@@ -114,6 +114,36 @@ threads reply <THREAD_ID> --commit-hash abc123 --message "Fixed as suggested"
 threads reply <THREAD_ID> --commit-hash abc123  # Uses default message
 ```
 
+### issues
+
+**Purpose**: Comprehensive issue management with sub-issue support
+
+```bash
+# View issue with sub-issues hierarchy
+issues show <number>                     # Basic issue information
+issues show <number> --include-sub       # Include sub-issues with statistics
+issues show <number> --include-sub --detailed  # Full details for each sub-issue
+
+# Create issues with parent relationships
+issues create --title "Task" --body "Description"
+issues create --title "Subtask" --body "Details" --parent 123
+issues create --title "Bug fix" --body "..." --label bug --assignee @me
+
+# Manage parent-child relationships
+issues edit <number> --parent 123              # Add as sub-issue of #123
+issues edit <number> --parent 456 --overwrite  # Move to different parent
+issues edit <number> --unlink-parent           # Remove parent relationship
+
+# Deprecated command (use edit instead)
+issues link-parent <number> --parent 123       # Use 'issues edit' instead
+```
+
+**Sub-issue Statistics**: When using `--include-sub`, provides:
+- Completion percentage based on closed sub-issues
+- Total sub-issue count with closed/open breakdown
+- Hierarchical tree view of all sub-issues
+- Full issue details when using `--detailed` flag
+
 ## State Management
 
 Review state tracking in `~/.cache/spanner-mycli-reviews/`:
@@ -260,6 +290,45 @@ func main() {
 - Detailed guidance in the operational flow, not in generic error handling
 - Clean exit codes without redundant messaging
 
+### GraphQL Query Optimization with @include
+
+**Problem**: Different command flags require different sets of data, leading to multiple query definitions.
+
+**Solution**: Use GraphQL @include directives with boolean variables.
+
+**Implementation Pattern**:
+```go
+const issueQuery = `
+query($includeSubIssues: Boolean!, $includeDetails: Boolean!) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) {
+      ...IssueFields
+      trackedIssues(first: 100) @include(if: $includeSubIssues) {
+        nodes {
+          ...IssueFields
+          body @include(if: $includeDetails)
+          createdAt @include(if: $includeDetails)
+        }
+      }
+    }
+  }
+}
+fragment IssueFields on Issue { number title state url }
+`
+
+// Usage
+variables := map[string]interface{}{
+    "includeSubIssues": showCmd.Flag("include-sub").Changed,
+    "includeDetails": showCmd.Flag("detailed").Changed,
+}
+```
+
+**Benefits**:
+- Single query definition for all flag combinations
+- Reduced network payload when features aren't used
+- Cleaner code without string concatenation
+- Type safety through consistent variable usage
+
 ## GraphQL API Usage
 
 ### Efficient Queries
@@ -375,13 +444,39 @@ The implementation now handles all the cases you mentioned.
 EOF
 ```
 
+### Issue Management Workflow
+
+```bash
+# 1. View issue hierarchy to understand project structure
+gh-helper issues show 248 --include-sub --detailed
+
+# 2. Create a new sub-task for implementation
+gh-helper issues create --title "Implement data validation" \
+  --body "Add input validation for user forms" \
+  --parent 248 --label enhancement
+
+# 3. Check completion status
+gh-helper issues show 248 --include-sub | gojq --yaml-input '.subIssues.completionPercentage'
+
+# 4. Move sub-issue to different parent if needed
+gh-helper issues edit 456 --parent 250 --overwrite
+
+# 5. Extract sub-issue data for reporting
+gh-helper issues show 248 --include-sub | gojq --yaml-input '
+  .subIssues.items[] | 
+  select(.state == "OPEN") | 
+  {number, title, labels: .labels[].name}
+'
+```
+
 ## Migration from Shell Scripts
 
-| Old Script | New Command |
+| Old Script/Command | New Command |
 |------------|-------------|
 | `scripts/dev/list-review-threads.sh` | `gh-helper reviews fetch [PR] --list-threads` |
 | `scripts/dev/review-reply.sh` | `gh-helper threads reply` |
 | Custom review waiting scripts | `gh-helper reviews wait` |
+| `gh-helper issues link-parent` | `gh-helper issues edit <number> --parent <parent>` |
 
 ## Output Format and Programmatic Usage
 

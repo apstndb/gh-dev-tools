@@ -34,6 +34,11 @@ gh-helper reviews fetch <PR>
 
 # Thread operations
 gh-helper threads reply <THREAD_ID> --message "Fixed as suggested"
+
+# Issue management with sub-issues
+gh-helper issues show 248 --include-sub --detailed
+gh-helper issues edit 456 --parent 123
+gh-helper issues create --title "Subtask" --body "Details" --parent 123
 ```
 
 ## Development
