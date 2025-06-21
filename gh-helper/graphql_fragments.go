@@ -306,8 +306,7 @@ fragment SubIssueFields on Issue {
 
 	AllFragments = PageInfoFragment + ReviewCommentFragment + ReviewFragment + ReviewConnectionFragment + 
 		PRMetadataFragment + ThreadCommentFragment + ThreadFragment + ThreadConnectionFragment + 
-		StatusCheckRollupFragment + CommitWithStatusFragment + LabelFragment + LabelableFragment +
-		IssueFieldsFragment + SubIssueFieldsFragment
+		StatusCheckRollupFragment + CommitWithStatusFragment + AllLabelFragments + AllIssueFragments
 )
 
 // Conversion functions between fragment types and domain types
