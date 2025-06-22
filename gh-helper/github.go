@@ -742,7 +742,7 @@ func (c *GitHubClient) GetLabelableInfo(repoID string, itemType string, number i
 	}
 
 	query := LabelFragment + `
-	query($owner: String!, $repo: String!, $number: Int!) {
+	query($owner: String!, $repo: String!, $number: Int!, $isIssue: Boolean!, $isPR: Boolean!) {
 		repository(owner: $owner, name: $repo) {
 			issue(number: $number) @include(if: $isIssue) {
 				id
