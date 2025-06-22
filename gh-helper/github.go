@@ -741,8 +741,16 @@ func (c *GitHubClient) GetLabelableInfo(repoID string, itemType string, number i
 		itemType = node.NodeType
 	}
 
+	// Use $isIssue and $isPR to conditionally include issue or pullRequest fields
+	// based on the item type to avoid unnecessary queries
 	query := LabelFragment + `
-	query($owner: String!, $repo: String!, $number: Int!) {
+	query GetLabelableInfo(
+		$owner: String!    # repository owner
+		$repo: String!     # repository name
+		$number: Int!      # issue or PR number
+		$isIssue: Boolean! # flag to include issue fields
+		$isPR: Boolean!    # flag to include PR fields
+	) {
 		repository(owner: $owner, name: $repo) {
 			issue(number: $number) @include(if: $isIssue) {
 				id
