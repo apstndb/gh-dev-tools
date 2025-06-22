@@ -7,3 +7,6 @@
 
 # Go artifacts
 *.out
+
+# IDE settings
+.idea/
