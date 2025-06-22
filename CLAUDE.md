@@ -45,6 +45,11 @@ make build              # Build gh-helper tool
 ./bin/gh-helper reviews wait <PR> --request-summary   # Request and wait for Gemini summary
 ./bin/gh-helper threads reply <ID1> <ID2> <ID3> --resolve  # Bulk reply to threads
 
+# Schema introspection for AI assistants
+./bin/gh-helper schema type PullRequest            # Show type fields and descriptions
+./bin/gh-helper schema mutation createIssue        # Show mutation input requirements
+./bin/gh-helper schema search "review.*thread"     # Search schema with regex patterns
+
 # Issue and sub-issue management
 ./bin/gh-helper issues show <number>               # Show basic issue information
 ./bin/gh-helper issues show <number> --include-sub # Show issue with sub-issues and statistics
@@ -352,6 +357,30 @@ query($owner: String!, $repo: String!, $number: Int!, $includeSub: Boolean!) {
 - Ensures consistent field selection
 - Makes queries more maintainable
 - Simplifies updates when field requirements change
+
+## GitHub GraphQL Schema Introspection
+
+Use `go tool github-schema` to explore GitHub's GraphQL API schema:
+
+```bash
+# Search for types/fields
+go tool github-schema search "pull request"
+
+# Show detailed information about a type
+go tool github-schema type PullRequest
+
+# Show mutation input requirements
+go tool github-schema mutation createIssue
+
+# Run custom jq queries on the schema
+go tool github-schema query '.data.__schema.types[] | select(.name | contains("Issue")) | .name'
+```
+
+This tool is especially useful when:
+- Designing new GraphQL queries for gh-helper
+- Understanding available fields and their types
+- Finding the correct input types for mutations
+- Exploring relationships between GitHub API objects
 
 ## Additional Commands
 
