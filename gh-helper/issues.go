@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -42,25 +43,6 @@ Examples:
 	createIssue,
 )
 
-var linkParentCmd = NewOperationalCommand(
-	"link-parent <child-issue> --parent <parent-issue>",
-	"Link a parent issue to an existing issue (deprecated: use 'edit --parent')",
-	`Link an existing issue as a sub-issue of another issue.
-
-DEPRECATED: This command will be removed in a future version.
-Please use 'gh-helper issues edit <issue> --parent <parent>' instead.
-
-This command establishes a parent-child relationship between two existing issues,
-making the child issue a sub-issue of the parent issue.
-
-Examples:
-  # Make issue #456 a sub-issue of #123
-  gh-helper issues link-parent 456 --parent 123
-  
-  # Make issue #789 a sub-issue of #456
-  gh-helper issues link-parent 789 --parent 456`,
-	linkParent,
-)
 
 var showIssueCmd = NewOperationalCommand(
 	"show <issue> [flags]",
@@ -81,8 +63,8 @@ Examples:
 
 var editIssueCmd = NewOperationalCommand(
 	"edit <issue> [flags]",
-	"Edit issue properties",
-	`Edit various properties of an existing issue.
+	"Edit issue properties and manage sub-issue relationships",
+	`Edit various properties of an existing issue including parent relationships and sub-issue ordering.
 
 Examples:
   # Add issue #456 as a sub-issue of #123
@@ -92,7 +74,20 @@ Examples:
   gh-helper issues edit 456 --parent 789 --overwrite
   
   # Remove parent relationship
-  gh-helper issues edit 456 --unlink-parent`,
+  gh-helper issues edit 456 --unlink-parent
+  
+  # Reorder sub-issue #456 after #789
+  gh-helper issues edit 456 --after 789
+  
+  # Move sub-issue to beginning or end
+  gh-helper issues edit 456 --position first
+  gh-helper issues edit 456 --position last
+  
+  # Batch add multiple sub-issues to parent #123
+  gh-helper issues edit 123 --add-subs 456,789,101
+  
+  # Batch remove multiple sub-issues from parent #123
+  gh-helper issues edit 123 --remove-subs 456,789`,
 	editIssue,
 )
 
@@ -112,11 +107,6 @@ func init() {
 		panic(fmt.Sprintf("failed to mark title flag as required: %v", err))
 	}
 
-	// Configure flags for link-parent command
-	linkParentCmd.Flags().IntP("parent", "p", 0, "Parent issue number (required)")
-	if err := linkParentCmd.MarkFlagRequired("parent"); err != nil {
-		panic(fmt.Sprintf("failed to mark parent flag as required: %v", err))
-	}
 
 	// Configure flags for show command
 	showIssueCmd.Flags().Bool("include-sub", false, "Include sub-issues list and statistics")
@@ -126,10 +116,14 @@ func init() {
 	editIssueCmd.Flags().Int("parent", 0, "Set parent issue number")
 	editIssueCmd.Flags().Bool("overwrite", false, "Replace existing parent relationship")
 	editIssueCmd.Flags().Bool("unlink-parent", false, "Remove parent relationship")
+	editIssueCmd.Flags().Int("after", 0, "Place sub-issue after another sub-issue")
+	editIssueCmd.Flags().Int("before", 0, "Place sub-issue before another sub-issue")
+	editIssueCmd.Flags().String("position", "", "Move sub-issue to 'first' or 'last' position")
+	editIssueCmd.Flags().IntSlice("add-subs", []int{}, "Add multiple sub-issues (comma-separated)")
+	editIssueCmd.Flags().IntSlice("remove-subs", []int{}, "Remove multiple sub-issues (comma-separated)")
 
 	// Add subcommands
 	issuesCmd.AddCommand(createIssueCmd)
-	issuesCmd.AddCommand(linkParentCmd)
 	issuesCmd.AddCommand(showIssueCmd)
 	issuesCmd.AddCommand(editIssueCmd)
 }
@@ -311,30 +305,7 @@ func createIssue(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create issue: %w", err)
 	}
 
-	var response struct {
-		Data struct {
-			CreateIssue struct {
-				Issue struct {
-					ID        string `json:"id"`
-					Number    int    `json:"number"`
-					URL       string `json:"url"`
-					Title     string `json:"title"`
-					State     string `json:"state"`
-					Labels    struct {
-						Nodes []struct {
-							Name string `json:"name"`
-						} `json:"nodes"`
-					} `json:"labels"`
-					Assignees struct {
-						Nodes []struct {
-							Login string `json:"login"`
-						} `json:"nodes"`
-					} `json:"assignees"`
-					CreatedAt string `json:"createdAt"`
-				} `json:"issue"`
-			} `json:"createIssue"`
-		} `json:"data"`
-	}
+	var response CreateIssueResponse
 
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		return fmt.Errorf("failed to parse response: %w", err)
@@ -405,13 +376,7 @@ func (c *GitHubClient) GetRepositoryID() (string, error) {
 		return "", err
 	}
 
-	var response struct {
-		Data struct {
-			Repository struct {
-				ID string `json:"id"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
+	var response RepositoryIDResponse
 
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		return "", err
@@ -445,13 +410,7 @@ func (c *GitHubClient) GetUserIDs(usernames []string) ([]string, error) {
 			return nil, fmt.Errorf("failed to get user %s: %w", username, err)
 		}
 
-		var response struct {
-			Data struct {
-				User struct {
-					ID string `json:"id"`
-				} `json:"user"`
-			} `json:"data"`
-		}
+		var response UserQueryResponse
 
 		if err := json.Unmarshal(responseData, &response); err != nil {
 			return nil, err
@@ -491,18 +450,7 @@ func (c *GitHubClient) GetMilestoneID(title string) (string, error) {
 		return "", err
 	}
 
-	var response struct {
-		Data struct {
-			Repository struct {
-				Milestones struct {
-					Nodes []struct {
-						ID    string `json:"id"`
-						Title string `json:"title"`
-					} `json:"nodes"`
-				} `json:"milestones"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
+	var response MilestoneQueryResponse
 
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		return "", err
@@ -544,18 +492,7 @@ func (c *GitHubClient) GetProjectID(name string) (string, error) {
 		return "", err
 	}
 
-	var response struct {
-		Data struct {
-			Repository struct {
-				ProjectsV2 struct {
-					Nodes []struct {
-						ID    string `json:"id"`
-						Title string `json:"title"`
-					} `json:"nodes"`
-				} `json:"projectsV2"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
+	var response ProjectQueryResponse
 
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		return "", err
@@ -601,41 +538,7 @@ func (c *GitHubClient) GetIssueWithSubIssues(number int, includeSub bool, detail
 		return nil, fmt.Errorf("failed to fetch issue: %w", err)
 	}
 
-	var response struct {
-		Data struct {
-			Repository struct {
-				Issue *struct {
-					Number    int    `json:"number"`
-					Title     string `json:"title"`
-					State     string `json:"state"`
-					Body      string `json:"body"`
-					URL       string `json:"url"`
-					CreatedAt string `json:"createdAt"`
-					UpdatedAt string `json:"updatedAt"`
-					Labels    struct {
-						Nodes []struct {
-							Name string `json:"name"`
-						} `json:"nodes"`
-					} `json:"labels"`
-					Assignees struct {
-						Nodes []struct {
-							Login string `json:"login"`
-						} `json:"nodes"`
-					} `json:"assignees"`
-					SubIssues *struct {
-						TotalCount int `json:"totalCount"`
-						Nodes      []struct {
-							ID     string `json:"id"`
-							Number int    `json:"number"`
-							Title  string `json:"title"`
-							State  string `json:"state"`
-							Closed bool   `json:"closed"`
-						} `json:"nodes"`
-					} `json:"subIssues,omitempty"`
-				} `json:"issue"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
+	var response IssueWithSubIssuesResponse
 
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
@@ -742,18 +645,7 @@ func (c *GitHubClient) RemoveSubIssue(childNumber int) (*BasicIssueInfo, error) 
 		return nil, fmt.Errorf("failed to get child issue: %w", err)
 	}
 
-	var childResponse struct {
-		Data struct {
-			Repository struct {
-				Issue *struct {
-					ID    string `json:"id"`
-					Title string `json:"title"`
-					URL   string `json:"url"`
-					State string `json:"state"`
-				} `json:"issue"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
+	var childResponse GetRepositoryIssueResponse
 
 	if err := json.Unmarshal(childData, &childResponse); err != nil {
 		return nil, err
@@ -768,10 +660,10 @@ func (c *GitHubClient) RemoveSubIssue(childNumber int) (*BasicIssueInfo, error) 
 	// Get the parent issue ID first - we need both IDs for removeSubIssue
 	// We need to find which issue is the parent
 	parentQuery := `
-	query($owner: String!, $repo: String!, $childId: ID!) {
+	query($childId: ID!) {
 		node(id: $childId) {
 			... on Issue {
-				parentIssue {
+				parent {
 					id
 				}
 			}
@@ -779,8 +671,6 @@ func (c *GitHubClient) RemoveSubIssue(childNumber int) (*BasicIssueInfo, error) 
 	}`
 
 	parentVariables := map[string]interface{}{
-		"owner":   c.Owner,
-		"repo":    c.Repo,
 		"childId": childID,
 	}
 
@@ -789,25 +679,16 @@ func (c *GitHubClient) RemoveSubIssue(childNumber int) (*BasicIssueInfo, error) 
 		return nil, fmt.Errorf("failed to get parent issue: %w", err)
 	}
 
-	var parentResponse struct {
-		Data struct {
-			Node struct {
-				ParentIssue *struct {
-					ID string `json:"id"`
-				} `json:"parentIssue"`
-			} `json:"node"`
-		} `json:"data"`
-	}
-
+	var parentResponse NodeQueryParentResponse
 	if err := json.Unmarshal(parentData, &parentResponse); err != nil {
 		return nil, err
 	}
 
-	if parentResponse.Data.Node.ParentIssue == nil {
+	if parentResponse.Data.Node.Parent == nil {
 		return nil, fmt.Errorf("issue #%d has no parent", childNumber)
 	}
 
-	parentID := parentResponse.Data.Node.ParentIssue.ID
+	parentID := parentResponse.Data.Node.Parent.ID
 
 	// Remove the sub-issue relationship
 	mutation := `
@@ -836,20 +717,7 @@ func (c *GitHubClient) RemoveSubIssue(childNumber int) (*BasicIssueInfo, error) 
 		return nil, fmt.Errorf("failed to remove sub-issue relationship: %w", err)
 	}
 
-	var response struct {
-		Data struct {
-			RemoveSubIssue struct {
-				Issue struct {
-					ID     string `json:"id"`
-					Number int    `json:"number"`
-					Title  string `json:"title"`
-					URL    string `json:"url"`
-					State  string `json:"state"`
-				} `json:"issue"`
-			} `json:"removeSubIssue"`
-		} `json:"data"`
-	}
-
+	var response RemoveSubIssueMutationResponse
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		return nil, err
 	}
@@ -897,15 +765,7 @@ func (c *GitHubClient) SetIssueParent(childNumber int, parentNumber int, overwri
 		return nil, fmt.Errorf("failed to fetch issues: %w", err)
 	}
 
-	var response struct {
-		Data struct {
-			Repository struct {
-				Child  *issueNode `json:"child"`
-				Parent *issueNode `json:"parent"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
-
+	var response GetRepositoryIssuesResponse
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
@@ -956,15 +816,7 @@ func (c *GitHubClient) SetIssueParent(childNumber int, parentNumber int, overwri
 		return nil, fmt.Errorf("failed to set parent relationship: %w", err)
 	}
 
-	var linkResponse struct {
-		Data struct {
-			AddSubIssue struct {
-				Issue    issueNode `json:"issue"`
-				SubIssue issueNode `json:"subIssue"`
-			} `json:"addSubIssue"`
-		} `json:"data"`
-	}
-
+	var linkResponse AddSubIssueMutationResponse
 	if err := json.Unmarshal(linkResponseData, &linkResponse); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
@@ -1044,16 +896,7 @@ func (c *GitHubClient) AddSubIssue(childID string, parentNumber int) (*ParentIss
 		return nil, fmt.Errorf("failed to get parent issue: %w", err)
 	}
 
-	var parentResponse struct {
-		Data struct {
-			Repository struct {
-				Issue struct {
-					ID    string `json:"id"`
-					Title string `json:"title"`
-				} `json:"issue"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
+	var parentResponse GetRepositoryIssueResponse
 
 	if err := json.Unmarshal(parentData, &parentResponse); err != nil {
 		return nil, err
@@ -1091,13 +934,6 @@ func (c *GitHubClient) AddSubIssue(childID string, parentNumber int) (*ParentIss
 		Number: parentNumber,
 		Title:  parentResponse.Data.Repository.Issue.Title,
 	}, nil
-}
-
-// LinkParentResult represents the result of linking parent-child issues
-type LinkParentResult struct {
-	Child        BasicIssueInfo `json:"child"`
-	Parent       BasicIssueInfo `json:"parent"`
-	Relationship string         `json:"relationship"`
 }
 
 // BasicIssueInfo represents basic issue information matching GitHub GraphQL API Issue type
@@ -1166,164 +1002,14 @@ type ParentChangeInfo struct {
 	Action    string          `json:"action"`
 }
 
-// issueNode represents the Issue node from GitHub GraphQL API responses
-type issueNode struct {
-	ID    string `json:"id"`
-	Number int    `json:"number"`
-	Title  string `json:"title"`
-	URL    string `json:"url"`
-	State  string `json:"state"`
-}
-
-// toBasicIssueInfo converts an issueNode to BasicIssueInfo
-func (n *issueNode) toBasicIssueInfo() BasicIssueInfo {
+// toBasicIssueInfo converts GitHub API IssueFields to our custom BasicIssueInfo type
+func (n *IssueFields) toBasicIssueInfo() BasicIssueInfo {
 	return BasicIssueInfo{
 		Number: n.Number,
 		Title:  n.Title,
 		URL:    n.URL,
 		State:  n.State,
 	}
-}
-
-func linkParent(cmd *cobra.Command, args []string) error {
-	// Validate required arguments
-	if len(args) < 1 {
-		return fmt.Errorf("child issue number is required")
-	}
-	
-	// Parse child issue number from args
-	childNumber, err := strconv.Atoi(args[0])
-	if err != nil {
-		return fmt.Errorf("invalid child issue number: %s", args[0])
-	}
-	
-	// Get parent from flag
-	parentNumber, err := cmd.Flags().GetInt("parent")
-	if err != nil {
-		return fmt.Errorf("failed to get 'parent' flag: %w", err)
-	}
-	
-	// Create GitHub client
-	client := NewGitHubClient(owner, repo)
-
-	// Fetch both issues to get their details and IDs
-	issueQuery := `
-	query($owner: String!, $repo: String!, $childNumber: Int!, $parentNumber: Int!) {
-		repository(owner: $owner, name: $repo) {
-			child: issue(number: $childNumber) {
-				id
-				number
-				title
-				url
-				state
-			}
-			parent: issue(number: $parentNumber) {
-				id
-				number
-				title
-				url
-				state
-			}
-		}
-	}`
-
-	variables := map[string]interface{}{
-		"owner":        client.Owner,
-		"repo":         client.Repo,
-		"childNumber":  childNumber,
-		"parentNumber": parentNumber,
-	}
-
-	responseData, err := client.RunGraphQLQueryWithVariables(issueQuery, variables)
-	if err != nil {
-		return fmt.Errorf("failed to fetch issues: %w", err)
-	}
-
-	var response struct {
-		Data struct {
-			Repository struct {
-				Child  *issueNode `json:"child"`
-				Parent *issueNode `json:"parent"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
-
-	if err := json.Unmarshal(responseData, &response); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	// Validate both issues exist
-	if response.Data.Repository.Child == nil {
-		return fmt.Errorf("child issue not found: #%d", childNumber)
-	}
-	if response.Data.Repository.Parent == nil {
-		return fmt.Errorf("parent issue not found: #%d", parentNumber)
-	}
-
-	child := response.Data.Repository.Child
-	parent := response.Data.Repository.Parent
-
-	// Create the sub-issue relationship using GitHub's addSubIssue mutation
-	mutation := `
-	mutation($parentId: ID!, $subIssueId: ID!) {
-		addSubIssue(input: {
-			issueId: $parentId
-			subIssueId: $subIssueId
-		}) {
-			issue {
-				id
-				number
-				title
-				url
-				state
-			}
-			subIssue {
-				id
-				number
-				title
-				url
-				state
-			}
-		}
-	}`
-
-	linkVariables := map[string]interface{}{
-		"parentId":   parent.ID,
-		"subIssueId": child.ID,
-	}
-
-	linkResponseData, err := client.RunGraphQLQueryWithVariables(mutation, linkVariables)
-	if err != nil {
-		return fmt.Errorf("failed to create sub-issue relationship: %w", err)
-	}
-
-	var linkResponse struct {
-		Data struct {
-			AddSubIssue struct {
-				Issue    issueNode `json:"issue"`
-				SubIssue issueNode `json:"subIssue"`
-			} `json:"addSubIssue"`
-		} `json:"data"`
-	}
-
-	if err := json.Unmarshal(linkResponseData, &linkResponse); err != nil {
-		return fmt.Errorf("failed to parse link-parent response: %w", err)
-	}
-
-	// Build result from the mutation's response to ensure it's up-to-date
-	result := LinkParentResult{
-		Child:        linkResponse.Data.AddSubIssue.SubIssue.toBasicIssueInfo(),
-		Parent:       linkResponse.Data.AddSubIssue.Issue.toBasicIssueInfo(),
-		Relationship: "sub-issue",
-	}
-
-	// Output result
-	format := ResolveFormat(cmd)
-	output := map[string]interface{}{
-		"linkParent": result,
-	}
-
-	return EncodeOutput(os.Stdout, format, output)
 }
 
 func showIssue(cmd *cobra.Command, args []string) error {
@@ -1371,6 +1057,449 @@ func showIssue(cmd *cobra.Command, args []string) error {
 	return EncodeOutput(os.Stdout, format, output)
 }
 
+// ReorderSubIssue reorders a sub-issue within its parent's sub-issue list
+func (c *GitHubClient) ReorderSubIssue(subIssueNumber int, afterNumber int, beforeNumber int, position string) (*EditIssueResult, error) {
+	// First, get the sub-issue ID and its parent
+	query := `
+	query($owner: String!, $repo: String!, $number: Int!) {
+		repository(owner: $owner, name: $repo) {
+			issue(number: $number) {
+				id
+				title
+				url
+				state
+				parent {
+					id
+					number
+					title
+				}
+			}
+		}
+	}`
+
+	variables := map[string]interface{}{
+		"owner":  c.Owner,
+		"repo":   c.Repo,
+		"number": subIssueNumber,
+	}
+
+	responseData, err := c.RunGraphQLQueryWithVariables(query, variables)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch issue: %w", err)
+	}
+
+	var response IssueQueryResponse
+
+	if err := json.Unmarshal(responseData, &response); err != nil {
+		return nil, err
+	}
+
+	if response.Data.Repository.Issue == nil {
+		return nil, fmt.Errorf("issue not found: #%d", subIssueNumber)
+	}
+
+	issue := response.Data.Repository.Issue
+	if issue.Parent == nil {
+		return nil, fmt.Errorf("issue #%d is not a sub-issue", subIssueNumber)
+	}
+
+	// Determine the position details
+	var afterID, beforeID *string
+	
+	if afterNumber != 0 {
+		afterQuery := `
+		query($owner: String!, $repo: String!, $number: Int!) {
+			repository(owner: $owner, name: $repo) {
+				issue(number: $number) { id }
+			}
+		}`
+		afterVars := map[string]interface{}{"owner": c.Owner, "repo": c.Repo, "number": afterNumber}
+		afterData, err := c.RunGraphQLQueryWithVariables(afterQuery, afterVars)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch 'after' issue: %w", err)
+		}
+		var afterResp GetRepositoryIssueResponse
+		if err := json.Unmarshal(afterData, &afterResp); err != nil {
+			return nil, err
+		}
+		if afterResp.Data.Repository.Issue == nil {
+			return nil, fmt.Errorf("'after' issue not found: #%d", afterNumber)
+		}
+		afterID = &afterResp.Data.Repository.Issue.ID
+	}
+	
+	if beforeNumber != 0 {
+		beforeQuery := `
+		query($owner: String!, $repo: String!, $number: Int!) {
+			repository(owner: $owner, name: $repo) {
+				issue(number: $number) { id }
+			}
+		}`
+		beforeVars := map[string]interface{}{"owner": c.Owner, "repo": c.Repo, "number": beforeNumber}
+		beforeData, err := c.RunGraphQLQueryWithVariables(beforeQuery, beforeVars)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch 'before' issue: %w", err)
+		}
+		var beforeResp GetRepositoryIssueResponse
+		if err := json.Unmarshal(beforeData, &beforeResp); err != nil {
+			return nil, err
+		}
+		if beforeResp.Data.Repository.Issue == nil {
+			return nil, fmt.Errorf("'before' issue not found: #%d", beforeNumber)
+		}
+		beforeID = &beforeResp.Data.Repository.Issue.ID
+	}
+
+	// Execute the reprioritizeSubIssue mutation
+	mutation := `
+	mutation($parentId: ID!, $subIssueId: ID!, $afterId: ID, $beforeId: ID) {
+		reprioritizeSubIssue(input: {
+			issueId: $parentId
+			subIssueId: $subIssueId
+			afterId: $afterId
+			beforeId: $beforeId
+		}) {
+			issue {
+				id
+				number
+				title
+			}
+		}
+	}`
+
+	mutationVars := map[string]interface{}{
+		"parentId":   issue.Parent.ID,
+		"subIssueId": issue.ID,
+	}
+	
+	// Handle position-based ordering
+	switch position {
+	case "first":
+		// For first position, we need to get the first sub-issue and use beforeId
+		firstQuery := `
+		query($parentId: ID!) {
+			node(id: $parentId) {
+				... on Issue {
+					subIssues(first: 1) {
+						nodes { id }
+					}
+				}
+			}
+		}`
+		firstVars := map[string]interface{}{"parentId": issue.Parent.ID}
+		firstData, err := c.RunGraphQLQueryWithVariables(firstQuery, firstVars)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch first sub-issue: %w", err)
+		}
+		var firstResp NodeQuerySubIssuesResponse
+		if err := json.Unmarshal(firstData, &firstResp); err != nil {
+			return nil, err
+		}
+		if len(firstResp.Data.Node.SubIssues.Nodes) > 0 {
+			firstID := firstResp.Data.Node.SubIssues.Nodes[0].ID
+			if firstID != issue.ID {
+				mutationVars["beforeId"] = firstID
+			}
+		}
+	case "last":
+		// For last position, we need to get the last sub-issue
+		lastQuery := `
+		query($parentId: ID!) {
+			node(id: $parentId) {
+				... on Issue {
+					subIssues(last: 1) {
+						nodes { id }
+					}
+				}
+			}
+		}`
+		lastVars := map[string]interface{}{"parentId": issue.Parent.ID}
+		lastData, err := c.RunGraphQLQueryWithVariables(lastQuery, lastVars)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch last sub-issue: %w", err)
+		}
+		var lastResp NodeQuerySubIssuesResponse
+		if err := json.Unmarshal(lastData, &lastResp); err != nil {
+			return nil, err
+		}
+		if len(lastResp.Data.Node.SubIssues.Nodes) > 0 {
+			lastID := lastResp.Data.Node.SubIssues.Nodes[0].ID
+			if lastID != issue.ID {
+				mutationVars["afterId"] = lastID
+			}
+		}
+	default:
+		// Use provided afterId or beforeId
+		if afterID != nil {
+			mutationVars["afterId"] = *afterID
+		}
+		if beforeID != nil {
+			mutationVars["beforeId"] = *beforeID
+		}
+	}
+
+	mutationData, err := c.RunGraphQLQueryWithVariables(mutation, mutationVars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reorder sub-issue: %w", err)
+	}
+
+	var mutationResp ReprioritizeSubIssueResponse
+
+	if err := json.Unmarshal(mutationData, &mutationResp); err != nil {
+		return nil, err
+	}
+
+	// Build result
+	changeDescription := ""
+	if position != "" {
+		changeDescription = fmt.Sprintf("moved to %s position", position)
+	} else if afterNumber != 0 {
+		changeDescription = fmt.Sprintf("moved after #%d", afterNumber)
+	} else if beforeNumber != 0 {
+		changeDescription = fmt.Sprintf("moved before #%d", beforeNumber)
+	}
+
+	return &EditIssueResult{
+		Issue: BasicIssueInfo{
+			Number: subIssueNumber,
+			Title:  issue.Title,
+			URL:    issue.URL,
+			State:  issue.State,
+		},
+		Changes: []ChangeInfo{
+			{
+				Field:    "position",
+				NewValue: changeDescription,
+				Action:   "reorder",
+			},
+		},
+	}, nil
+}
+
+// BatchAddSubIssues adds multiple sub-issues to a parent issue
+func (c *GitHubClient) BatchAddSubIssues(parentNumber int, subIssueNumbers []int) (*EditIssueResult, error) {
+	// Get parent issue ID
+	parentQuery := `
+	query($owner: String!, $repo: String!, $number: Int!) {
+		repository(owner: $owner, name: $repo) {
+			issue(number: $number) {
+				id
+				title
+				url
+				state
+			}
+		}
+	}`
+
+	parentVars := map[string]interface{}{
+		"owner":  c.Owner,
+		"repo":   c.Repo,
+		"number": parentNumber,
+	}
+
+	parentData, err := c.RunGraphQLQueryWithVariables(parentQuery, parentVars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch parent issue: %w", err)
+	}
+
+	var parentResp GetRepositoryIssueResponse
+
+	if err := json.Unmarshal(parentData, &parentResp); err != nil {
+		return nil, err
+	}
+
+	if parentResp.Data.Repository.Issue == nil {
+		return nil, fmt.Errorf("parent issue not found: #%d", parentNumber)
+	}
+
+	parentIssue := parentResp.Data.Repository.Issue
+
+	// Get sub-issue IDs
+	subIssueIDs := make([]string, 0, len(subIssueNumbers))
+	for _, num := range subIssueNumbers {
+		subQuery := `
+		query($owner: String!, $repo: String!, $number: Int!) {
+			repository(owner: $owner, name: $repo) {
+				issue(number: $number) { id }
+			}
+		}`
+		subVars := map[string]interface{}{"owner": c.Owner, "repo": c.Repo, "number": num}
+		subData, err := c.RunGraphQLQueryWithVariables(subQuery, subVars)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch sub-issue #%d: %w", num, err)
+		}
+		
+		var subResp GetRepositoryIssueResponse
+		
+		if err := json.Unmarshal(subData, &subResp); err != nil {
+			return nil, err
+		}
+		
+		if subResp.Data.Repository.Issue == nil {
+			return nil, fmt.Errorf("sub-issue not found: #%d", num)
+		}
+		
+		subIssueIDs = append(subIssueIDs, subResp.Data.Repository.Issue.ID)
+	}
+
+	// Use GraphQL aliases to batch the operations
+	var mutationBuilder strings.Builder
+	mutationBuilder.WriteString("mutation {")
+	
+	for i, subID := range subIssueIDs {
+		fmt.Fprintf(&mutationBuilder, `
+		add%d: addSubIssue(input: {
+			issueId: "%s"
+			subIssueId: "%s"
+		}) {
+			issue { id }
+		}`, i, parentIssue.ID, subID)
+	}
+	
+	mutationBuilder.WriteString("\n}")
+
+	mutationData, err := c.RunGraphQLQuery(mutationBuilder.String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to add sub-issues: %w", err)
+	}
+
+	// We don't need to parse the full response, just check for errors
+	var errorCheck struct {
+		Errors []interface{} `json:"errors"`
+	}
+	if err := json.Unmarshal(mutationData, &errorCheck); err == nil && len(errorCheck.Errors) > 0 {
+		return nil, fmt.Errorf("GraphQL errors occurred during batch operation")
+	}
+
+	return &EditIssueResult{
+		Issue: BasicIssueInfo{
+			Number: parentNumber,
+			Title:  parentIssue.Title,
+			URL:    parentIssue.URL,
+			State:  parentIssue.State,
+		},
+		Changes: []ChangeInfo{
+			{
+				Field:    "sub-issues",
+				NewValue: fmt.Sprintf("added %d sub-issues: %v", len(subIssueNumbers), subIssueNumbers),
+				Action:   "add",
+			},
+		},
+	}, nil
+}
+
+// BatchRemoveSubIssues removes multiple sub-issues from a parent issue
+func (c *GitHubClient) BatchRemoveSubIssues(parentNumber int, subIssueNumbers []int) (*EditIssueResult, error) {
+	// Get parent issue ID
+	parentQuery := `
+	query($owner: String!, $repo: String!, $number: Int!) {
+		repository(owner: $owner, name: $repo) {
+			issue(number: $number) {
+				id
+				title
+				url
+				state
+			}
+		}
+	}`
+
+	parentVars := map[string]interface{}{
+		"owner":  c.Owner,
+		"repo":   c.Repo,
+		"number": parentNumber,
+	}
+
+	parentData, err := c.RunGraphQLQueryWithVariables(parentQuery, parentVars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch parent issue: %w", err)
+	}
+
+	var parentResp GetRepositoryIssueResponse
+
+	if err := json.Unmarshal(parentData, &parentResp); err != nil {
+		return nil, err
+	}
+
+	if parentResp.Data.Repository.Issue == nil {
+		return nil, fmt.Errorf("parent issue not found: #%d", parentNumber)
+	}
+
+	parentIssue := parentResp.Data.Repository.Issue
+
+	// Get sub-issue IDs
+	subIssueIDs := make([]string, 0, len(subIssueNumbers))
+	for _, num := range subIssueNumbers {
+		subQuery := `
+		query($owner: String!, $repo: String!, $number: Int!) {
+			repository(owner: $owner, name: $repo) {
+				issue(number: $number) { id }
+			}
+		}`
+		subVars := map[string]interface{}{"owner": c.Owner, "repo": c.Repo, "number": num}
+		subData, err := c.RunGraphQLQueryWithVariables(subQuery, subVars)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch sub-issue #%d: %w", num, err)
+		}
+		
+		var subResp GetRepositoryIssueResponse
+		
+		if err := json.Unmarshal(subData, &subResp); err != nil {
+			return nil, err
+		}
+		
+		if subResp.Data.Repository.Issue == nil {
+			return nil, fmt.Errorf("sub-issue not found: #%d", num)
+		}
+		
+		subIssueIDs = append(subIssueIDs, subResp.Data.Repository.Issue.ID)
+	}
+
+	// Use GraphQL aliases to batch the operations
+	var mutationBuilder strings.Builder
+	mutationBuilder.WriteString("mutation {")
+	
+	for i, subID := range subIssueIDs {
+		fmt.Fprintf(&mutationBuilder, `
+		remove%d: removeSubIssue(input: {
+			issueId: "%s"
+			subIssueId: "%s"
+		}) {
+			issue { id }
+		}`, i, parentIssue.ID, subID)
+	}
+	
+	mutationBuilder.WriteString("\n}")
+
+	mutationData, err := c.RunGraphQLQuery(mutationBuilder.String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to remove sub-issues: %w", err)
+	}
+
+	// We don't need to parse the full response, just check for errors
+	var errorCheck struct {
+		Errors []interface{} `json:"errors"`
+	}
+	if err := json.Unmarshal(mutationData, &errorCheck); err == nil && len(errorCheck.Errors) > 0 {
+		return nil, fmt.Errorf("GraphQL errors occurred during batch operation")
+	}
+
+	return &EditIssueResult{
+		Issue: BasicIssueInfo{
+			Number: parentNumber,
+			Title:  parentIssue.Title,
+			URL:    parentIssue.URL,
+			State:  parentIssue.State,
+		},
+		Changes: []ChangeInfo{
+			{
+				Field:    "sub-issues",
+				NewValue: fmt.Sprintf("removed %d sub-issues: %v", len(subIssueNumbers), subIssueNumbers),
+				Action:   "remove",
+			},
+		},
+	}, nil
+}
+
 func editIssue(cmd *cobra.Command, args []string) error {
 	// Validate required arguments
 	if len(args) < 1 {
@@ -1383,7 +1512,7 @@ func editIssue(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid issue number: %s", args[0])
 	}
 	
-	// Get flags
+	// Get all flags
 	parentNumber, err := cmd.Flags().GetInt("parent")
 	if err != nil {
 		return fmt.Errorf("failed to get 'parent' flag: %w", err)
@@ -1396,8 +1525,50 @@ func editIssue(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get 'unlink-parent' flag: %w", err)
 	}
+	afterNumber, err := cmd.Flags().GetInt("after")
+	if err != nil {
+		return fmt.Errorf("failed to get 'after' flag: %w", err)
+	}
+	beforeNumber, err := cmd.Flags().GetInt("before")
+	if err != nil {
+		return fmt.Errorf("failed to get 'before' flag: %w", err)
+	}
+	position, err := cmd.Flags().GetString("position")
+	if err != nil {
+		return fmt.Errorf("failed to get 'position' flag: %w", err)
+	}
+	addSubs, err := cmd.Flags().GetIntSlice("add-subs")
+	if err != nil {
+		return fmt.Errorf("failed to get 'add-subs' flag: %w", err)
+	}
+	removeSubs, err := cmd.Flags().GetIntSlice("remove-subs")
+	if err != nil {
+		return fmt.Errorf("failed to get 'remove-subs' flag: %w", err)
+	}
 	
-	// Validate flag combinations
+	// Count how many operations are requested
+	operationCount := 0
+	if parentNumber != 0 || unlinkParent {
+		operationCount++
+	}
+	if afterNumber != 0 || beforeNumber != 0 || position != "" {
+		operationCount++
+	}
+	if len(addSubs) > 0 {
+		operationCount++
+	}
+	if len(removeSubs) > 0 {
+		operationCount++
+	}
+	
+	if operationCount == 0 {
+		return fmt.Errorf("must specify at least one operation (--parent, --unlink-parent, --after, --before, --position, --add-subs, or --remove-subs)")
+	}
+	if operationCount > 1 {
+		return fmt.Errorf("cannot combine multiple operations in a single command")
+	}
+	
+	// Validate specific flag combinations
 	if unlinkParent && parentNumber != 0 {
 		return fmt.Errorf("cannot use --unlink-parent with --parent")
 	}
@@ -1407,8 +1578,14 @@ func editIssue(cmd *cobra.Command, args []string) error {
 	if overwrite && parentNumber == 0 {
 		return fmt.Errorf("--overwrite requires --parent")
 	}
-	if !unlinkParent && parentNumber == 0 {
-		return fmt.Errorf("must specify either --parent or --unlink-parent")
+	if afterNumber != 0 && beforeNumber != 0 {
+		return fmt.Errorf("cannot use --after with --before")
+	}
+	if (afterNumber != 0 || beforeNumber != 0) && position != "" {
+		return fmt.Errorf("cannot use --after/--before with --position")
+	}
+	if position != "" && position != "first" && position != "last" {
+		return fmt.Errorf("--position must be 'first' or 'last'")
 	}
 	
 	// Create GitHub client
@@ -1416,10 +1593,18 @@ func editIssue(cmd *cobra.Command, args []string) error {
 	
 	// Execute the appropriate operation
 	var result *EditIssueResult
-	if unlinkParent {
+	
+	switch {
+	case unlinkParent:
 		result, err = client.UnlinkIssueParent(issueNumber)
-	} else {
+	case parentNumber != 0:
 		result, err = client.SetIssueParent(issueNumber, parentNumber, overwrite)
+	case afterNumber != 0 || beforeNumber != 0 || position != "":
+		result, err = client.ReorderSubIssue(issueNumber, afterNumber, beforeNumber, position)
+	case len(addSubs) > 0:
+		result, err = client.BatchAddSubIssues(issueNumber, addSubs)
+	case len(removeSubs) > 0:
+		result, err = client.BatchRemoveSubIssues(issueNumber, removeSubs)
 	}
 	
 	if err != nil {
