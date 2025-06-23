@@ -45,10 +45,7 @@ make build              # Build gh-helper tool
 ./bin/gh-helper reviews wait <PR> --request-summary   # Request and wait for Gemini summary
 ./bin/gh-helper threads reply <ID1> <ID2> <ID3> --resolve  # Bulk reply to threads
 
-# Schema introspection for AI assistants
-./bin/gh-helper schema type PullRequest            # Show type fields and descriptions
-./bin/gh-helper schema mutation createIssue        # Show mutation input requirements
-./bin/gh-helper schema search "review.*thread"     # Search schema with regex patterns
+# Schema introspection is available via go tool github-schema (see below)
 
 # Issue and sub-issue management
 ./bin/gh-helper issues show <number>               # Show basic issue information
