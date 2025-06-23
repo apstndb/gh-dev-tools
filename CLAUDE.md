@@ -247,6 +247,7 @@ go install github.com/apstndb/gh-dev-tools/gh-helper@latest
 - **Pointer types required**: Use pointer structs to handle null responses properly
 - **@include directives**: Use for conditional field inclusion to optimize queries
 - **Fragment reuse**: Define fragments for commonly used field sets to avoid repetition
+- **Field name accuracy**: Always verify field names with `go tool github-schema` to avoid runtime errors
 
 ### Examples
 
@@ -356,6 +357,41 @@ query($owner: String!, $repo: String!, $number: Int!, $includeSub: Boolean!) {
 - Ensures consistent field selection
 - Makes queries more maintainable
 - Simplifies updates when field requirements change
+
+### Common Field Naming Mistakes
+
+**Issue parent field**:
+```graphql
+# CORRECT - The field is named 'parent'
+query {
+  issue(number: $number) {
+    parent {
+      id
+      number
+      title
+    }
+  }
+}
+
+# WRONG - These fields don't exist
+query {
+  issue(number: $number) {
+    parentIssue { id }     # ❌ GraphQL error: Field 'parentIssue' doesn't exist
+    parent_issue { id }    # ❌ GraphQL error: Field 'parent_issue' doesn't exist
+  }
+}
+```
+
+**How to verify field names**:
+```bash
+# Check available fields on Issue type
+go tool github-schema type Issue | grep -i parent
+
+# Get full field details
+go tool github-schema type Issue
+```
+
+**Best practice**: Before using any field name that seems intuitive but you haven't used before, always verify it exists in the schema. GitHub's GraphQL API doesn't always follow naming conventions you might expect.
 
 ## GitHub GraphQL Schema Introspection
 
