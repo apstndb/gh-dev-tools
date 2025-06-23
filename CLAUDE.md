@@ -457,7 +457,6 @@ Create and manage issues with advanced features:
 # Manage parent-child relationships
 ./bin/gh-helper issues edit 456 --parent 123              # Add as sub-issue
 ./bin/gh-helper issues edit 456 --parent 789 --overwrite  # Move to different parent
-./bin/gh-helper issues link-parent 456 --parent 123       # Deprecated: use edit command
 ```
 
 This provides comprehensive issue management including:

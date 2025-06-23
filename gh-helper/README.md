@@ -134,8 +134,6 @@ issues edit <number> --parent 123              # Add as sub-issue of #123
 issues edit <number> --parent 456 --overwrite  # Move to different parent
 issues edit <number> --unlink-parent           # Remove parent relationship
 
-# Deprecated command (use edit instead)
-issues link-parent <number> --parent 123       # Use 'issues edit' instead
 ```
 
 **Sub-issue Statistics**: When using `--include-sub`, provides:
@@ -477,7 +475,6 @@ gh-helper issues show 248 --include-sub | gojq --yaml-input '
 | `scripts/dev/list-review-threads.sh` | `gh-helper reviews fetch [PR] --list-threads` |
 | `scripts/dev/review-reply.sh` | `gh-helper threads reply` |
 | Custom review waiting scripts | `gh-helper reviews wait` |
-| `gh-helper issues link-parent` | `gh-helper issues edit <number> --parent <parent>` |
 
 ## Output Format and Programmatic Usage
 

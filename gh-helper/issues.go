@@ -43,25 +43,6 @@ Examples:
 	createIssue,
 )
 
-var linkParentCmd = NewOperationalCommand(
-	"link-parent <child-issue> --parent <parent-issue>",
-	"Link a parent issue to an existing issue (deprecated: use 'edit --parent')",
-	`Link an existing issue as a sub-issue of another issue.
-
-DEPRECATED: This command will be removed in a future version.
-Please use 'gh-helper issues edit <issue> --parent <parent>' instead.
-
-This command establishes a parent-child relationship between two existing issues,
-making the child issue a sub-issue of the parent issue.
-
-Examples:
-  # Make issue #456 a sub-issue of #123
-  gh-helper issues link-parent 456 --parent 123
-  
-  # Make issue #789 a sub-issue of #456
-  gh-helper issues link-parent 789 --parent 456`,
-	linkParent,
-)
 
 var showIssueCmd = NewOperationalCommand(
 	"show <issue> [flags]",
@@ -126,11 +107,6 @@ func init() {
 		panic(fmt.Sprintf("failed to mark title flag as required: %v", err))
 	}
 
-	// Configure flags for link-parent command
-	linkParentCmd.Flags().IntP("parent", "p", 0, "Parent issue number (required)")
-	if err := linkParentCmd.MarkFlagRequired("parent"); err != nil {
-		panic(fmt.Sprintf("failed to mark parent flag as required: %v", err))
-	}
 
 	// Configure flags for show command
 	showIssueCmd.Flags().Bool("include-sub", false, "Include sub-issues list and statistics")
@@ -148,7 +124,6 @@ func init() {
 
 	// Add subcommands
 	issuesCmd.AddCommand(createIssueCmd)
-	issuesCmd.AddCommand(linkParentCmd)
 	issuesCmd.AddCommand(showIssueCmd)
 	issuesCmd.AddCommand(editIssueCmd)
 }
@@ -961,13 +936,6 @@ func (c *GitHubClient) AddSubIssue(childID string, parentNumber int) (*ParentIss
 	}, nil
 }
 
-// LinkParentResult represents the result of linking parent-child issues
-type LinkParentResult struct {
-	Child        BasicIssueInfo `json:"child"`
-	Parent       BasicIssueInfo `json:"parent"`
-	Relationship string         `json:"relationship"`
-}
-
 // BasicIssueInfo represents basic issue information matching GitHub GraphQL API Issue type
 type BasicIssueInfo struct {
 	Number int    `json:"number"`
@@ -1042,131 +1010,6 @@ func (n *IssueFields) toBasicIssueInfo() BasicIssueInfo {
 		URL:    n.URL,
 		State:  n.State,
 	}
-}
-
-func linkParent(cmd *cobra.Command, args []string) error {
-	// Validate required arguments
-	if len(args) < 1 {
-		return fmt.Errorf("child issue number is required")
-	}
-	
-	// Parse child issue number from args
-	childNumber, err := strconv.Atoi(args[0])
-	if err != nil {
-		return fmt.Errorf("invalid child issue number: %s", args[0])
-	}
-	
-	// Get parent from flag
-	parentNumber, err := cmd.Flags().GetInt("parent")
-	if err != nil {
-		return fmt.Errorf("failed to get 'parent' flag: %w", err)
-	}
-	
-	// Create GitHub client
-	client := NewGitHubClient(owner, repo)
-
-	// Fetch both issues to get their details and IDs
-	issueQuery := `
-	query($owner: String!, $repo: String!, $childNumber: Int!, $parentNumber: Int!) {
-		repository(owner: $owner, name: $repo) {
-			child: issue(number: $childNumber) {
-				id
-				number
-				title
-				url
-				state
-			}
-			parent: issue(number: $parentNumber) {
-				id
-				number
-				title
-				url
-				state
-			}
-		}
-	}`
-
-	variables := map[string]interface{}{
-		"owner":        client.Owner,
-		"repo":         client.Repo,
-		"childNumber":  childNumber,
-		"parentNumber": parentNumber,
-	}
-
-	responseData, err := client.RunGraphQLQueryWithVariables(issueQuery, variables)
-	if err != nil {
-		return fmt.Errorf("failed to fetch issues: %w", err)
-	}
-
-	var response GetRepositoryIssuesResponse
-	if err := json.Unmarshal(responseData, &response); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	// Validate both issues exist
-	if response.Data.Repository.Child == nil {
-		return fmt.Errorf("child issue not found: #%d", childNumber)
-	}
-	if response.Data.Repository.Parent == nil {
-		return fmt.Errorf("parent issue not found: #%d", parentNumber)
-	}
-
-	child := response.Data.Repository.Child
-	parent := response.Data.Repository.Parent
-
-	// Create the sub-issue relationship using GitHub's addSubIssue mutation
-	mutation := `
-	mutation($parentId: ID!, $subIssueId: ID!) {
-		addSubIssue(input: {
-			issueId: $parentId
-			subIssueId: $subIssueId
-		}) {
-			issue {
-				id
-				number
-				title
-				url
-				state
-			}
-			subIssue {
-				id
-				number
-				title
-				url
-				state
-			}
-		}
-	}`
-
-	linkVariables := map[string]interface{}{
-		"parentId":   parent.ID,
-		"subIssueId": child.ID,
-	}
-
-	linkResponseData, err := client.RunGraphQLQueryWithVariables(mutation, linkVariables)
-	if err != nil {
-		return fmt.Errorf("failed to create sub-issue relationship: %w", err)
-	}
-
-	var linkResponse AddSubIssueMutationResponse
-	if err := json.Unmarshal(linkResponseData, &linkResponse); err != nil {
-		return fmt.Errorf("failed to parse link-parent response: %w", err)
-	}
-
-	// Build result from the mutation's response to ensure it's up-to-date
-	result := LinkParentResult{
-		Child:        linkResponse.Data.AddSubIssue.SubIssue.toBasicIssueInfo(),
-		Parent:       linkResponse.Data.AddSubIssue.Issue.toBasicIssueInfo(),
-		Relationship: "sub-issue",
-	}
-
-	// Output result
-	format := ResolveFormat(cmd)
-	output := map[string]interface{}{
-		"linkParent": result,
-	}
-
-	return EncodeOutput(os.Stdout, format, output)
 }
 
 func showIssue(cmd *cobra.Command, args []string) error {
