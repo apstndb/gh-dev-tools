@@ -144,6 +144,7 @@ issues link-parent <number> --parent 123       # Use 'issues edit' instead
 - Hierarchical tree view of all sub-issues
 - Full issue details when using `--detailed` flag
 
+
 ## State Management
 
 Review state tracking in `~/.cache/spanner-mycli-reviews/`:

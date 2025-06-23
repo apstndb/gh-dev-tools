@@ -2,6 +2,10 @@
 
 Generic GitHub development tools optimized for AI assistants.
 
+## Requirements
+
+- Go 1.24 or later
+
 ## Installation
 
 ```bash
