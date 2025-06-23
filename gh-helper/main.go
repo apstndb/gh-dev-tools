@@ -284,7 +284,7 @@ func init() {
 	// Add subcommands
 	reviewsCmd.AddCommand(fetchReviewsCmd, waitReviewsCmd)
 	threadsCmd.AddCommand(showThreadCmd, replyThreadsCmd, resolveThreadCmd)
-	rootCmd.AddCommand(reviewsCmd, threadsCmd, labelsCmd, issuesCmd, releasesCmd)
+	rootCmd.AddCommand(reviewsCmd, threadsCmd, labelsCmd, issuesCmd, releasesCmd, nodeIDCmd)
 }
 
 func main() {
