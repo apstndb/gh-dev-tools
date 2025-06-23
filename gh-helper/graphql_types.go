@@ -463,6 +463,258 @@ type GetPRWithLinkedIssuesResponse struct {
 }
 
 // =============================================================================
+// Issue Types (GitHub GraphQL API types and custom types)
+// =============================================================================
+
+// IssueFields represents the common fields for Issue in GitHub GraphQL API
+type IssueFields struct {
+	ID     string `json:"id"`
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	URL    string `json:"url,omitempty"`   // Optional: not always queried
+	State  string `json:"state,omitempty"` // Optional: not always queried
+}
+
+// CreateIssueInput for GitHub GraphQL API createIssue mutation
+type CreateIssueInput struct {
+	ClientMutationID *string  `json:"clientMutationId,omitempty"`
+	RepositoryID     string   `json:"repositoryId"`
+	Title            string   `json:"title"`
+	Body             *string  `json:"body,omitempty"`
+	LabelIDs         []string `json:"labelIds,omitempty"`
+	AssigneeIDs      []string `json:"assigneeIds,omitempty"`
+	MilestoneID      *string  `json:"milestoneId,omitempty"`
+	ProjectIDs       []string `json:"projectIds,omitempty"`
+}
+
+// CreateIssueResponse from GitHub GraphQL API
+type CreateIssueResponse struct {
+	Data struct {
+		CreateIssue struct {
+			Issue struct {
+				ID        string `json:"id"`
+				Number    int    `json:"number"`
+				URL       string `json:"url"`
+				Title     string `json:"title"`
+				State     string `json:"state"`
+				Labels    struct {
+					Nodes []struct {
+						Name string `json:"name"`
+					} `json:"nodes"`
+				} `json:"labels"`
+				Assignees struct {
+					Nodes []struct {
+						Login string `json:"login"`
+					} `json:"nodes"`
+				} `json:"assignees"`
+				CreatedAt string `json:"createdAt"`
+			} `json:"issue"`
+		} `json:"createIssue"`
+	} `json:"data"`
+}
+
+// AddSubIssueInput for GitHub GraphQL API addSubIssue mutation
+type AddSubIssueInput struct {
+	ClientMutationID *string `json:"clientMutationId,omitempty"`
+	IssueID          string  `json:"issueId"`
+	SubIssueID       string  `json:"subIssueId"`
+}
+
+// AddSubIssueResponse from GitHub GraphQL API
+type AddSubIssueResponse struct {
+	Data struct {
+		AddSubIssue struct {
+			Issue IssueFields `json:"issue"` // GitHub API Issue type
+		} `json:"addSubIssue"`
+	} `json:"data"`
+}
+
+// RemoveSubIssueInput for GitHub GraphQL API removeSubIssue mutation
+type RemoveSubIssueInput struct {
+	ClientMutationID *string `json:"clientMutationId,omitempty"`
+	IssueID          string  `json:"issueId"`
+	SubIssueID       string  `json:"subIssueId"`
+}
+
+// RemoveSubIssueMutationResponse from GitHub GraphQL API
+type RemoveSubIssueMutationResponse struct {
+	Data struct {
+		RemoveSubIssue struct {
+			Issue IssueFields `json:"issue"` // GitHub API Issue type
+		} `json:"removeSubIssue"`
+	} `json:"data"`
+}
+
+// ReprioritizeSubIssueInput for GitHub GraphQL API reprioritizeSubIssue mutation
+type ReprioritizeSubIssueInput struct {
+	ClientMutationID *string `json:"clientMutationId,omitempty"`
+	IssueID          string  `json:"issueId"`
+	SubIssueID       string  `json:"subIssueId"`
+	AfterID          *string `json:"afterId,omitempty"`
+	BeforeID         *string `json:"beforeId,omitempty"`
+}
+
+// ReprioritizeSubIssueResponse from GitHub GraphQL API
+type ReprioritizeSubIssueResponse struct {
+	Data struct {
+		ReprioritizeSubIssue struct {
+			Issue IssueFields `json:"issue"` // GitHub API Issue type
+		} `json:"reprioritizeSubIssue"`
+	} `json:"data"`
+}
+
+// NodeQueryParentResponse for queries fetching parent issue info via node
+type NodeQueryParentResponse struct {
+	Data struct {
+		Node struct {
+			Parent *IssueFields `json:"parent"` // GitHub API Issue type (can be nil)
+		} `json:"node"`
+	} `json:"data"`
+}
+
+// GetRepositoryIssuesResponse for queries fetching two issues
+type GetRepositoryIssuesResponse struct {
+	Data struct {
+		Repository struct {
+			Child  *IssueFields `json:"child"`  // GitHub API Issue type
+			Parent *IssueFields `json:"parent"` // GitHub API Issue type
+		} `json:"repository"`
+	} `json:"data"`
+}
+
+// UserQueryResponse for fetching user information
+type UserQueryResponse struct {
+	Data struct {
+		User struct {
+			ID string `json:"id"`
+		} `json:"user"`
+	} `json:"data"`
+}
+
+// MilestoneQueryResponse for fetching milestone information
+type MilestoneQueryResponse struct {
+	Data struct {
+		Repository struct {
+			Milestones struct {
+				Nodes []struct {
+					ID    string `json:"id"`
+					Title string `json:"title"`
+				} `json:"nodes"`
+			} `json:"milestones"`
+		} `json:"repository"`
+	} `json:"data"`
+}
+
+// ProjectQueryResponse for fetching project information
+type ProjectQueryResponse struct {
+	Data struct {
+		Repository struct {
+			ProjectsV2 struct {
+				Nodes []struct {
+					ID    string `json:"id"`
+					Title string `json:"title"`
+				} `json:"nodes"`
+			} `json:"projectsV2"`
+		} `json:"repository"`
+	} `json:"data"`
+}
+
+// IssueWithSubIssuesResponse for queries fetching issue with sub-issues
+type IssueWithSubIssuesResponse struct {
+	Data struct {
+		Repository struct {
+			Issue *struct {
+				Number    int    `json:"number"`
+				Title     string `json:"title"`
+				State     string `json:"state"`
+				Body      string `json:"body"`
+				URL       string `json:"url"`
+				CreatedAt string `json:"createdAt"`
+				UpdatedAt string `json:"updatedAt"`
+				Labels    struct {
+					Nodes []struct {
+						Name string `json:"name"`
+					} `json:"nodes"`
+				} `json:"labels"`
+				Assignees struct {
+					Nodes []struct {
+						Login string `json:"login"`
+					} `json:"nodes"`
+				} `json:"assignees"`
+				SubIssues *struct {
+					TotalCount int `json:"totalCount"`
+					Nodes      []struct {
+						ID     string `json:"id"`
+						Number int    `json:"number"`
+						Title  string `json:"title"`
+						State  string `json:"state"`
+						Closed bool   `json:"closed"`
+					} `json:"nodes"`
+				} `json:"subIssues,omitempty"`
+			} `json:"issue"`
+		} `json:"repository"`
+	} `json:"data"`
+}
+
+// BatchSubIssueQueryResponse for batch operations on sub-issues
+type BatchSubIssueQueryResponse struct {
+	Data struct {
+		Repository map[string]*IssueFields `json:"repository"` // GitHub API Issue type
+	} `json:"data"`
+}
+
+// GetRepositoryIssueResponse for queries fetching a single issue
+type GetRepositoryIssueResponse struct {
+	Data struct {
+		Repository struct {
+			Issue *IssueFields `json:"issue"` // GitHub API Issue type
+		} `json:"repository"`
+	} `json:"data"`
+}
+
+// NodeQuerySubIssuesResponse for queries fetching sub-issues via node(id:)
+type NodeQuerySubIssuesResponse struct {
+	Data struct {
+		Node struct {
+			SubIssues struct {
+				Nodes []struct {
+					ID string `json:"id"`
+				} `json:"nodes"`
+			} `json:"subIssues"`
+		} `json:"node"`
+	} `json:"data"`
+}
+
+// IssueQueryResponse for simple issue queries with parent info
+type IssueQueryResponse struct {
+	Data struct {
+		Repository struct {
+			Issue *struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+				URL   string `json:"url"`
+				State string `json:"state"`
+				Parent *struct {
+					ID     string `json:"id"`
+					Number int    `json:"number"`
+					Title  string `json:"title"`
+				} `json:"parent"`
+			} `json:"issue"`
+		} `json:"repository"`
+	} `json:"data"`
+}
+
+// AddSubIssueMutationResponse for addSubIssue mutation with two issues returned
+type AddSubIssueMutationResponse struct {
+	Data struct {
+		AddSubIssue struct {
+			Issue    IssueFields `json:"issue"`    // GitHub API Issue type (parent)
+			SubIssue IssueFields `json:"subIssue"` // GitHub API Issue type (child)
+		} `json:"addSubIssue"`
+	} `json:"data"`
+}
+
+// =============================================================================
 // Common Types
 // =============================================================================
 

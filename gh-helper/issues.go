@@ -330,30 +330,7 @@ func createIssue(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create issue: %w", err)
 	}
 
-	var response struct {
-		Data struct {
-			CreateIssue struct {
-				Issue struct {
-					ID        string `json:"id"`
-					Number    int    `json:"number"`
-					URL       string `json:"url"`
-					Title     string `json:"title"`
-					State     string `json:"state"`
-					Labels    struct {
-						Nodes []struct {
-							Name string `json:"name"`
-						} `json:"nodes"`
-					} `json:"labels"`
-					Assignees struct {
-						Nodes []struct {
-							Login string `json:"login"`
-						} `json:"nodes"`
-					} `json:"assignees"`
-					CreatedAt string `json:"createdAt"`
-				} `json:"issue"`
-			} `json:"createIssue"`
-		} `json:"data"`
-	}
+	var response CreateIssueResponse
 
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		return fmt.Errorf("failed to parse response: %w", err)
@@ -424,13 +401,7 @@ func (c *GitHubClient) GetRepositoryID() (string, error) {
 		return "", err
 	}
 
-	var response struct {
-		Data struct {
-			Repository struct {
-				ID string `json:"id"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
+	var response RepositoryIDResponse
 
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		return "", err
@@ -464,13 +435,7 @@ func (c *GitHubClient) GetUserIDs(usernames []string) ([]string, error) {
 			return nil, fmt.Errorf("failed to get user %s: %w", username, err)
 		}
 
-		var response struct {
-			Data struct {
-				User struct {
-					ID string `json:"id"`
-				} `json:"user"`
-			} `json:"data"`
-		}
+		var response UserQueryResponse
 
 		if err := json.Unmarshal(responseData, &response); err != nil {
 			return nil, err
@@ -510,18 +475,7 @@ func (c *GitHubClient) GetMilestoneID(title string) (string, error) {
 		return "", err
 	}
 
-	var response struct {
-		Data struct {
-			Repository struct {
-				Milestones struct {
-					Nodes []struct {
-						ID    string `json:"id"`
-						Title string `json:"title"`
-					} `json:"nodes"`
-				} `json:"milestones"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
+	var response MilestoneQueryResponse
 
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		return "", err
@@ -563,18 +517,7 @@ func (c *GitHubClient) GetProjectID(name string) (string, error) {
 		return "", err
 	}
 
-	var response struct {
-		Data struct {
-			Repository struct {
-				ProjectsV2 struct {
-					Nodes []struct {
-						ID    string `json:"id"`
-						Title string `json:"title"`
-					} `json:"nodes"`
-				} `json:"projectsV2"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
+	var response ProjectQueryResponse
 
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		return "", err
@@ -620,41 +563,7 @@ func (c *GitHubClient) GetIssueWithSubIssues(number int, includeSub bool, detail
 		return nil, fmt.Errorf("failed to fetch issue: %w", err)
 	}
 
-	var response struct {
-		Data struct {
-			Repository struct {
-				Issue *struct {
-					Number    int    `json:"number"`
-					Title     string `json:"title"`
-					State     string `json:"state"`
-					Body      string `json:"body"`
-					URL       string `json:"url"`
-					CreatedAt string `json:"createdAt"`
-					UpdatedAt string `json:"updatedAt"`
-					Labels    struct {
-						Nodes []struct {
-							Name string `json:"name"`
-						} `json:"nodes"`
-					} `json:"labels"`
-					Assignees struct {
-						Nodes []struct {
-							Login string `json:"login"`
-						} `json:"nodes"`
-					} `json:"assignees"`
-					SubIssues *struct {
-						TotalCount int `json:"totalCount"`
-						Nodes      []struct {
-							ID     string `json:"id"`
-							Number int    `json:"number"`
-							Title  string `json:"title"`
-							State  string `json:"state"`
-							Closed bool   `json:"closed"`
-						} `json:"nodes"`
-					} `json:"subIssues,omitempty"`
-				} `json:"issue"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
+	var response IssueWithSubIssuesResponse
 
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
@@ -761,18 +670,7 @@ func (c *GitHubClient) RemoveSubIssue(childNumber int) (*BasicIssueInfo, error) 
 		return nil, fmt.Errorf("failed to get child issue: %w", err)
 	}
 
-	var childResponse struct {
-		Data struct {
-			Repository struct {
-				Issue *struct {
-					ID    string `json:"id"`
-					Title string `json:"title"`
-					URL   string `json:"url"`
-					State string `json:"state"`
-				} `json:"issue"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
+	var childResponse GetRepositoryIssueResponse
 
 	if err := json.Unmarshal(childData, &childResponse); err != nil {
 		return nil, err
@@ -806,16 +704,7 @@ func (c *GitHubClient) RemoveSubIssue(childNumber int) (*BasicIssueInfo, error) 
 		return nil, fmt.Errorf("failed to get parent issue: %w", err)
 	}
 
-	var parentResponse struct {
-		Data struct {
-			Node struct {
-				Parent *struct {
-					ID string `json:"id"`
-				} `json:"parent"`
-			} `json:"node"`
-		} `json:"data"`
-	}
-
+	var parentResponse NodeQueryParentResponse
 	if err := json.Unmarshal(parentData, &parentResponse); err != nil {
 		return nil, err
 	}
@@ -853,20 +742,7 @@ func (c *GitHubClient) RemoveSubIssue(childNumber int) (*BasicIssueInfo, error) 
 		return nil, fmt.Errorf("failed to remove sub-issue relationship: %w", err)
 	}
 
-	var response struct {
-		Data struct {
-			RemoveSubIssue struct {
-				Issue struct {
-					ID     string `json:"id"`
-					Number int    `json:"number"`
-					Title  string `json:"title"`
-					URL    string `json:"url"`
-					State  string `json:"state"`
-				} `json:"issue"`
-			} `json:"removeSubIssue"`
-		} `json:"data"`
-	}
-
+	var response RemoveSubIssueMutationResponse
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		return nil, err
 	}
@@ -914,15 +790,7 @@ func (c *GitHubClient) SetIssueParent(childNumber int, parentNumber int, overwri
 		return nil, fmt.Errorf("failed to fetch issues: %w", err)
 	}
 
-	var response struct {
-		Data struct {
-			Repository struct {
-				Child  *issueNode `json:"child"`
-				Parent *issueNode `json:"parent"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
-
+	var response GetRepositoryIssuesResponse
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
@@ -973,15 +841,7 @@ func (c *GitHubClient) SetIssueParent(childNumber int, parentNumber int, overwri
 		return nil, fmt.Errorf("failed to set parent relationship: %w", err)
 	}
 
-	var linkResponse struct {
-		Data struct {
-			AddSubIssue struct {
-				Issue    issueNode `json:"issue"`
-				SubIssue issueNode `json:"subIssue"`
-			} `json:"addSubIssue"`
-		} `json:"data"`
-	}
-
+	var linkResponse AddSubIssueMutationResponse
 	if err := json.Unmarshal(linkResponseData, &linkResponse); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
@@ -1061,16 +921,7 @@ func (c *GitHubClient) AddSubIssue(childID string, parentNumber int) (*ParentIss
 		return nil, fmt.Errorf("failed to get parent issue: %w", err)
 	}
 
-	var parentResponse struct {
-		Data struct {
-			Repository struct {
-				Issue struct {
-					ID    string `json:"id"`
-					Title string `json:"title"`
-				} `json:"issue"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
+	var parentResponse GetRepositoryIssueResponse
 
 	if err := json.Unmarshal(parentData, &parentResponse); err != nil {
 		return nil, err
@@ -1183,17 +1034,8 @@ type ParentChangeInfo struct {
 	Action    string          `json:"action"`
 }
 
-// issueNode represents the Issue node from GitHub GraphQL API responses
-type issueNode struct {
-	ID    string `json:"id"`
-	Number int    `json:"number"`
-	Title  string `json:"title"`
-	URL    string `json:"url"`
-	State  string `json:"state"`
-}
-
-// toBasicIssueInfo converts an issueNode to BasicIssueInfo
-func (n *issueNode) toBasicIssueInfo() BasicIssueInfo {
+// toBasicIssueInfo converts GitHub API IssueFields to our custom BasicIssueInfo type
+func (n *IssueFields) toBasicIssueInfo() BasicIssueInfo {
 	return BasicIssueInfo{
 		Number: n.Number,
 		Title:  n.Title,
@@ -1256,15 +1098,7 @@ func linkParent(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to fetch issues: %w", err)
 	}
 
-	var response struct {
-		Data struct {
-			Repository struct {
-				Child  *issueNode `json:"child"`
-				Parent *issueNode `json:"parent"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
-
+	var response GetRepositoryIssuesResponse
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		return fmt.Errorf("failed to parse response: %w", err)
 	}
@@ -1314,15 +1148,7 @@ func linkParent(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create sub-issue relationship: %w", err)
 	}
 
-	var linkResponse struct {
-		Data struct {
-			AddSubIssue struct {
-				Issue    issueNode `json:"issue"`
-				SubIssue issueNode `json:"subIssue"`
-			} `json:"addSubIssue"`
-		} `json:"data"`
-	}
-
+	var linkResponse AddSubIssueMutationResponse
 	if err := json.Unmarshal(linkResponseData, &linkResponse); err != nil {
 		return fmt.Errorf("failed to parse link-parent response: %w", err)
 	}
@@ -1419,23 +1245,7 @@ func (c *GitHubClient) ReorderSubIssue(subIssueNumber int, afterNumber int, befo
 		return nil, fmt.Errorf("failed to fetch issue: %w", err)
 	}
 
-	var response struct {
-		Data struct {
-			Repository struct {
-				Issue *struct {
-					ID    string `json:"id"`
-					Title string `json:"title"`
-					URL   string `json:"url"`
-					State string `json:"state"`
-					Parent *struct {
-						ID     string `json:"id"`
-						Number int    `json:"number"`
-						Title  string `json:"title"`
-					} `json:"parent"`
-				} `json:"issue"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
+	var response IssueQueryResponse
 
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		return nil, err
@@ -1465,15 +1275,7 @@ func (c *GitHubClient) ReorderSubIssue(subIssueNumber int, afterNumber int, befo
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch 'after' issue: %w", err)
 		}
-		var afterResp struct {
-			Data struct {
-				Repository struct {
-					Issue *struct {
-						ID string `json:"id"`
-					} `json:"issue"`
-				} `json:"repository"`
-			} `json:"data"`
-		}
+		var afterResp GetRepositoryIssueResponse
 		if err := json.Unmarshal(afterData, &afterResp); err != nil {
 			return nil, err
 		}
@@ -1495,15 +1297,7 @@ func (c *GitHubClient) ReorderSubIssue(subIssueNumber int, afterNumber int, befo
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch 'before' issue: %w", err)
 		}
-		var beforeResp struct {
-			Data struct {
-				Repository struct {
-					Issue *struct {
-						ID string `json:"id"`
-					} `json:"issue"`
-				} `json:"repository"`
-			} `json:"data"`
-		}
+		var beforeResp GetRepositoryIssueResponse
 		if err := json.Unmarshal(beforeData, &beforeResp); err != nil {
 			return nil, err
 		}
@@ -1554,17 +1348,7 @@ func (c *GitHubClient) ReorderSubIssue(subIssueNumber int, afterNumber int, befo
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch first sub-issue: %w", err)
 		}
-		var firstResp struct {
-			Data struct {
-				Node struct {
-					SubIssues struct {
-						Nodes []struct {
-							ID string `json:"id"`
-						} `json:"nodes"`
-					} `json:"subIssues"`
-				} `json:"node"`
-			} `json:"data"`
-		}
+		var firstResp NodeQuerySubIssuesResponse
 		if err := json.Unmarshal(firstData, &firstResp); err != nil {
 			return nil, err
 		}
@@ -1591,17 +1375,7 @@ func (c *GitHubClient) ReorderSubIssue(subIssueNumber int, afterNumber int, befo
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch last sub-issue: %w", err)
 		}
-		var lastResp struct {
-			Data struct {
-				Node struct {
-					SubIssues struct {
-						Nodes []struct {
-							ID string `json:"id"`
-						} `json:"nodes"`
-					} `json:"subIssues"`
-				} `json:"node"`
-			} `json:"data"`
-		}
+		var lastResp NodeQuerySubIssuesResponse
 		if err := json.Unmarshal(lastData, &lastResp); err != nil {
 			return nil, err
 		}
@@ -1626,17 +1400,7 @@ func (c *GitHubClient) ReorderSubIssue(subIssueNumber int, afterNumber int, befo
 		return nil, fmt.Errorf("failed to reorder sub-issue: %w", err)
 	}
 
-	var mutationResp struct {
-		Data struct {
-			ReprioritizeSubIssue struct {
-				Issue struct {
-					ID     string `json:"id"`
-					Number int    `json:"number"`
-					Title  string `json:"title"`
-				} `json:"issue"`
-			} `json:"reprioritizeSubIssue"`
-		} `json:"data"`
-	}
+	var mutationResp ReprioritizeSubIssueResponse
 
 	if err := json.Unmarshal(mutationData, &mutationResp); err != nil {
 		return nil, err
@@ -1695,18 +1459,7 @@ func (c *GitHubClient) BatchAddSubIssues(parentNumber int, subIssueNumbers []int
 		return nil, fmt.Errorf("failed to fetch parent issue: %w", err)
 	}
 
-	var parentResp struct {
-		Data struct {
-			Repository struct {
-				Issue *struct {
-					ID    string `json:"id"`
-					Title string `json:"title"`
-					URL   string `json:"url"`
-					State string `json:"state"`
-				} `json:"issue"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
+	var parentResp GetRepositoryIssueResponse
 
 	if err := json.Unmarshal(parentData, &parentResp); err != nil {
 		return nil, err
@@ -1733,15 +1486,7 @@ func (c *GitHubClient) BatchAddSubIssues(parentNumber int, subIssueNumbers []int
 			return nil, fmt.Errorf("failed to fetch sub-issue #%d: %w", num, err)
 		}
 		
-		var subResp struct {
-			Data struct {
-				Repository struct {
-					Issue *struct {
-						ID string `json:"id"`
-					} `json:"issue"`
-				} `json:"repository"`
-			} `json:"data"`
-		}
+		var subResp GetRepositoryIssueResponse
 		
 		if err := json.Unmarshal(subData, &subResp); err != nil {
 			return nil, err
@@ -1826,18 +1571,7 @@ func (c *GitHubClient) BatchRemoveSubIssues(parentNumber int, subIssueNumbers []
 		return nil, fmt.Errorf("failed to fetch parent issue: %w", err)
 	}
 
-	var parentResp struct {
-		Data struct {
-			Repository struct {
-				Issue *struct {
-					ID    string `json:"id"`
-					Title string `json:"title"`
-					URL   string `json:"url"`
-					State string `json:"state"`
-				} `json:"issue"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
+	var parentResp GetRepositoryIssueResponse
 
 	if err := json.Unmarshal(parentData, &parentResp); err != nil {
 		return nil, err
@@ -1864,15 +1598,7 @@ func (c *GitHubClient) BatchRemoveSubIssues(parentNumber int, subIssueNumbers []
 			return nil, fmt.Errorf("failed to fetch sub-issue #%d: %w", num, err)
 		}
 		
-		var subResp struct {
-			Data struct {
-				Repository struct {
-					Issue *struct {
-						ID string `json:"id"`
-					} `json:"issue"`
-				} `json:"repository"`
-			} `json:"data"`
-		}
+		var subResp GetRepositoryIssueResponse
 		
 		if err := json.Unmarshal(subData, &subResp); err != nil {
 			return nil, err
