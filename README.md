@@ -43,6 +43,11 @@ gh-helper threads reply <THREAD_ID> --message "Fixed as suggested"
 gh-helper issues show 248 --include-sub --detailed
 gh-helper issues edit 456 --parent 123
 gh-helper issues create --title "Subtask" --body "Details" --parent 123
+
+# Get GraphQL node IDs
+gh-helper node-id issue 248
+gh-helper node-id pr 312
+gh-helper node-id --batch "issue:123,pr:456,issue:789"
 ```
 
 ## Development
