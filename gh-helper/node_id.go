@@ -41,20 +41,15 @@ func init() {
 	nodeIDCmd.Flags().String("batch", "", "Batch resolve multiple items (e.g., issue:123,pr:456,issue:789)")
 	
 	// Set custom run function for batch processing
-	nodeIDCmd.Run = func(cmd *cobra.Command, args []string) {
+	nodeIDCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		batch, err := cmd.Flags().GetString("batch")
 		if err != nil {
-			ErrorMsg("Error retrieving batch flag: %v", err).Print()
-			os.Exit(1)
+			return fmt.Errorf("error retrieving batch flag: %w", err)
 		}
 		if batch != "" {
-			if err := nodeIDBatch(cmd, batch); err != nil {
-				ErrorMsg("Error: %v", err).Print()
-				os.Exit(1)
-			}
-		} else {
-			_ = cmd.Help()
+			return nodeIDBatch(cmd, batch)
 		}
+		return cmd.Help()
 	}
 	
 	// Add subcommands
