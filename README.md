@@ -27,6 +27,7 @@ gh-helper --help
 - Structured YAML/JSON output
 - Batch operations to minimize API calls
 - AI-friendly interface design
+- Built-in jq query support for output filtering and transformation
 
 **Common Usage:**
 ```bash
@@ -48,7 +49,41 @@ gh-helper issues create --title "Subtask" --body "Details" --parent 123
 gh-helper node-id issue 248
 gh-helper node-id pr 312
 gh-helper node-id --batch "issue:123,pr:456,issue:789"
+
+# JQ query support (new!)
+gh-helper issues show 37 --jq '.issueShow.issue.title'
+gh-helper issues show 37 --jq '.issueShow.issue | {title, state, labels}'
+gh-helper reviews fetch 306 --jq '.reviews[] | select(.state == "APPROVED")'
+gh-helper node-id issue 37 --jq '.nodeId.id'
 ```
+
+### JQ Query Support
+
+All commands support the `--jq` flag for filtering and transforming output using jq queries:
+
+```bash
+# Extract specific fields
+gh-helper issues show 37 --jq '.issueShow.issue.title'
+
+# Build custom objects
+gh-helper issues show 37 --jq '.issueShow.issue | {title, state, labels}'
+
+# Filter arrays
+gh-helper reviews fetch 306 --jq '.reviews[] | select(.state == "APPROVED")'
+
+# Transform output
+gh-helper issues list --jq '.issues[].title' | sort
+
+# Complex queries
+gh-helper issues show 248 --include-sub --jq '.issueShow.issue.subIssues.nodes[] | select(.state == "OPEN") | .title'
+```
+
+The jq integration:
+- Works with both YAML and JSON output formats
+- Processes data before final output encoding
+- Supports all standard jq features
+- Includes a 30-second timeout for complex queries
+- Provides helpful error messages for invalid queries
 
 ## Development
 

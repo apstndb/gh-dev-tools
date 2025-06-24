@@ -258,6 +258,7 @@ func init() {
 	rootCmd.PersistentFlags().String("format", "yaml", "Output format (yaml|json)")
 	rootCmd.PersistentFlags().Bool("json", false, "Output JSON format (alias for --format=json)")
 	rootCmd.PersistentFlags().Bool("yaml", false, "Output YAML format (alias for --format=yaml)")
+	rootCmd.PersistentFlags().String("jq", "", "Apply jq query to filter/transform output")
 	
 	// Mark all format flags as mutually exclusive
 	rootCmd.MarkFlagsMutuallyExclusive("format", "json")
@@ -779,12 +780,11 @@ func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumb
 	}
 	
 	// Output the detailed status
-	format := ResolveFormat(cmd)
 	output := map[string]interface{}{
 		"detailedStatus": status,
 	}
 	
-	return EncodeOutput(os.Stdout, format, output)
+	return EncodeOutputWithCmd(cmd, output)
 }
 
 // performRequestSummaryAndWait requests a Gemini summary and waits for it
@@ -1315,8 +1315,6 @@ func showThread(cmd *cobra.Command, args []string) error {
 	client := NewGitHubClient(owner, repo)
 
 	// Get output format using unified resolver
-	format := ResolveFormat(cmd)
-	
 	// Get exclude-urls flag
 	excludeURLs, err := cmd.Flags().GetBool("exclude-urls")
 	if err != nil {
@@ -1399,11 +1397,11 @@ func showThread(cmd *cobra.Command, args []string) error {
 	
 	// Output single result for backward compatibility when only one thread
 	if len(results) == 1 {
-		return EncodeOutput(os.Stdout, format, results[0])
+		return EncodeOutputWithCmd(cmd, results[0])
 	}
 	
 	// Output array for multiple threads
-	return EncodeOutput(os.Stdout, format, results)
+	return EncodeOutputWithCmd(cmd, results)
 }
 
 func resolveThread(cmd *cobra.Command, args []string) error {
@@ -1411,8 +1409,6 @@ func resolveThread(cmd *cobra.Command, args []string) error {
 	client := NewGitHubClient(owner, repo)
 	
 	// Get output format using unified resolver
-	format := ResolveFormat(cmd)
-	
 	resolvedAt := time.Now().Format("2006-01-02T15:04:05Z07:00")
 	results := []map[string]interface{}{}
 	
@@ -1432,11 +1428,11 @@ func resolveThread(cmd *cobra.Command, args []string) error {
 	
 	// Output single result for backward compatibility when only one thread
 	if len(results) == 1 {
-		return EncodeOutput(os.Stdout, format, results[0])
+		return EncodeOutputWithCmd(cmd, results[0])
 	}
 	
 	// Output array for multiple threads
-	return EncodeOutput(os.Stdout, format, results)
+	return EncodeOutputWithCmd(cmd, results)
 }
 
 // threadInput represents a thread ID with optional custom message
@@ -1498,8 +1494,6 @@ func replyToThread(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get output format using unified resolver
-	format := ResolveFormat(cmd)
-
 	// Get parallel execution flags
 	parallel, _ := cmd.Flags().GetBool("parallel")
 	maxConcurrent, _ := cmd.Flags().GetInt("max-concurrent")
@@ -1573,7 +1567,7 @@ func replyToThread(cmd *cobra.Command, args []string) error {
 		if autoResolve {
 			outputData["isResolved"] = result.Resolved
 		}
-		return EncodeOutput(os.Stdout, format, outputData)
+		return EncodeOutputWithCmd(cmd, outputData)
 	}
 
 	// Multiple threads - output bulk results
@@ -1587,7 +1581,7 @@ func replyToThread(cmd *cobra.Command, args []string) error {
 		},
 	}
 
-	return EncodeOutput(os.Stdout, format, summary)
+	return EncodeOutputWithCmd(cmd, summary)
 }
 
 // Helper function to check if any thread has custom messages

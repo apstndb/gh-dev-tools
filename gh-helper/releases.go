@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -228,10 +227,8 @@ func analyzeRelease(cmd *cobra.Command, args []string) error {
 	}
 
 	// Output results
-	format := ResolveFormat(cmd)
-	
 	// Special handling for markdown format
-	if format == FormatMarkdown {
+	if ResolveFormat(cmd) == FormatMarkdown {
 		return outputMarkdownAnalysis(analysis)
 	}
 
@@ -239,7 +236,7 @@ func analyzeRelease(cmd *cobra.Command, args []string) error {
 		"releaseAnalysis": analysis,
 	}
 
-	return EncodeOutput(os.Stdout, format, output)
+	return EncodeOutputWithCmd(cmd, output)
 }
 
 // analyzePRs performs the analysis on a set of PRs

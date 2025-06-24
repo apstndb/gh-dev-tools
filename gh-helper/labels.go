@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 
@@ -300,7 +299,7 @@ func addLabels(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	return EncodeOutput(os.Stdout, ResolveFormat(cmd), summary)
+	return EncodeOutputWithCmd(cmd, summary)
 }
 
 func removeLabels(cmd *cobra.Command, args []string) error {
@@ -473,7 +472,7 @@ func removeLabels(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	return EncodeOutput(os.Stdout, ResolveFormat(cmd), summary)
+	return EncodeOutputWithCmd(cmd, summary)
 }
 
 func addFromIssues(cmd *cobra.Command, args []string) error {
@@ -561,7 +560,7 @@ func addFromIssues(cmd *cobra.Command, args []string) error {
 		Status:        "success",
 	}
 
-	return EncodeOutput(os.Stdout, ResolveFormat(cmd), result)
+	return EncodeOutputWithCmd(cmd, result)
 }
 
 // Helper function to extract label names from nodes
