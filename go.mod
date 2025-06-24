@@ -12,6 +12,7 @@ require (
 
 require (
 	github.com/apstndb/github-schema-go v0.0.0-20250623030722-1a817133ad59 // indirect
+	github.com/apstndb/go-jq-yamlformat v0.0.0-20250624104049-8065cb9ec8ea // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/itchyny/timefmt-go v0.1.6 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect

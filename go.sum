@@ -1,5 +1,7 @@
 github.com/apstndb/github-schema-go v0.0.0-20250623030722-1a817133ad59 h1:etEjIRy990CS5iXEG6D+jIR0/3UFHBA3nxEn3eN7eGU=
 github.com/apstndb/github-schema-go v0.0.0-20250623030722-1a817133ad59/go.mod h1:4xU4lejA6zmr3FFKGHhw5fMOfTTtJ1LBe+mf6IkcYIY=
+github.com/apstndb/go-jq-yamlformat v0.0.0-20250624104049-8065cb9ec8ea h1:K66SQQQlgIzn+F4Fz1FQGRGU406daz2z3sbnG/2Tf/U=
+github.com/apstndb/go-jq-yamlformat v0.0.0-20250624104049-8065cb9ec8ea/go.mod h1:+HWC1dgcFqMnqy5/LzCe+fUcAqmZirOMlJqc6n4iaTk=
 github.com/apstndb/go-yamlformat v0.0.0-20250624080809-593ba2da569d h1:zRgNigAtm61iXpSKkXJgg+m4s1Dn8yJq/Euhg76oHg8=
 github.com/apstndb/go-yamlformat v0.0.0-20250624080809-593ba2da569d/go.mod h1:adI+0n+0AY1J+qhb7UbW3HjsUD15JCQPIih7FHLcrI4=
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=

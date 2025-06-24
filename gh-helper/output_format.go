@@ -2,15 +2,14 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 	"time"
 
+	jqyaml "github.com/apstndb/go-jq-yamlformat"
 	yamlformat "github.com/apstndb/go-yamlformat"
-	"github.com/itchyny/gojq"
 	"github.com/spf13/cobra"
 )
 
@@ -91,73 +90,27 @@ func EncodeOutputWithJQ(w io.Writer, format OutputFormat, data interface{}, jqQu
 		return EncodeOutput(w, format, data)
 	}
 
-	// Parse the jq query
-	query, err := gojq.Parse(jqQuery)
+	// Create pipeline with jq query
+	pipeline, err := jqyaml.New(jqyaml.WithQuery(jqQuery))
 	if err != nil {
-		return fmt.Errorf("invalid jq query: %w", err)
+		return fmt.Errorf("failed to create jq pipeline: %w", err)
 	}
 
-	// Convert data to generic interface for gojq
-	// This ensures gojq can process the data properly
-	jsonBytes, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal data: %w", err)
-	}
-	
-	var genericData interface{}
-	if err := json.Unmarshal(jsonBytes, &genericData); err != nil {
-		return fmt.Errorf("failed to unmarshal data: %w", err)
+	// Convert OutputFormat to yamlformat.Format
+	var yf yamlformat.Format
+	switch format {
+	case FormatJSON:
+		yf = yamlformat.FormatJSON
+	default:
+		yf = yamlformat.FormatYAML
 	}
 
-	// Compile the query for better performance
-	code, err := gojq.Compile(query)
-	if err != nil {
-		return fmt.Errorf("failed to compile jq query: %w", err)
-	}
-
-	// Create context with timeout for query execution
+	// Create context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Run the query
-	iter := code.RunWithContext(ctx, genericData)
-
-	// Collect all results first
-	var results []interface{}
-	for {
-		v, ok := iter.Next()
-		if !ok {
-			break
-		}
-		if err, ok := v.(error); ok {
-			if err == context.DeadlineExceeded {
-				return fmt.Errorf("jq query timed out after 30 seconds")
-			}
-			return fmt.Errorf("jq query error: %w", err)
-		}
-		results = append(results, v)
-	}
-
-	// Determine what to encode
-	var output interface{}
-	switch len(results) {
-	case 0:
-		output = nil
-	case 1:
-		output = results[0]
-	default:
-		output = results
-	}
-
-	// Encode the output
-	switch format {
-	case FormatJSON:
-		encoder := yamlformat.NewJSONEncoder(w)
-		return encoder.Encode(output)
-	default:
-		encoder := yamlformat.NewEncoder(w)
-		return encoder.Encode(output)
-	}
+	// Execute pipeline with writer option
+	return pipeline.Execute(ctx, data, jqyaml.WithWriter(w, yf))
 }
 
 // Unmarshal unmarshals data using yamlformat
