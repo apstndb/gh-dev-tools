@@ -42,7 +42,11 @@ func init() {
 	
 	// Set custom run function for batch processing
 	nodeIDCmd.Run = func(cmd *cobra.Command, args []string) {
-		batch, _ := cmd.Flags().GetString("batch")
+		batch, err := cmd.Flags().GetString("batch")
+		if err != nil {
+			ErrorMsg("Error retrieving batch flag: %v", err).Print()
+			os.Exit(1)
+		}
 		if batch != "" {
 			if err := nodeIDBatch(cmd, batch); err != nil {
 				ErrorMsg("Error: %v", err).Print()
@@ -268,32 +272,42 @@ func nodeIDBatch(cmd *cobra.Command, batch string) error {
 	
 	dataMap, ok := rawResponse["data"].(map[string]interface{})
 	if !ok {
-		return fmt.Errorf("unexpected response format")
+		return fmt.Errorf("unexpected response format: data is not a map")
 	}
 	
 	repoMap, ok := dataMap["repository"].(map[string]interface{})
 	if !ok {
-		return fmt.Errorf("repository not found in response")
+		return fmt.Errorf("repository not found in response: repository is not a map")
 	}
 	
 	// Build results
 	var results []NodeIDResult
 	for _, item := range batchItems {
-		if itemData, exists := repoMap[item.Alias]; exists && itemData != nil {
-			if itemMap, ok := itemData.(map[string]interface{}); ok {
-				if id, ok := itemMap["id"].(string); ok {
-					resultType := "Issue"
-					if item.Type == "pr" {
-						resultType = "PullRequest"
-					}
-					results = append(results, NodeIDResult{
-						Type:   resultType,
-						Number: item.Number,
-						ID:     id,
-					})
-				}
-			}
+		itemData, exists := repoMap[item.Alias]
+		if !exists || itemData == nil {
+			continue
 		}
+		
+		itemMap, ok := itemData.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		
+		id, ok := itemMap["id"].(string)
+		if !ok {
+			continue
+		}
+		
+		resultType := "Issue"
+		if item.Type == "pr" {
+			resultType = "PullRequest"
+		}
+		
+		results = append(results, NodeIDResult{
+			Type:   resultType,
+			Number: item.Number,
+			ID:     id,
+		})
 	}
 	
 	response := NodeIDResponse{
