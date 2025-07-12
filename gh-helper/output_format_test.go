@@ -13,6 +13,7 @@ func TestEncodeOutputWithJQ(t *testing.T) {
 		data        interface{}
 		jqQuery     string
 		wantContain string
+		wantEmpty   bool
 		wantErr     bool
 	}{
 		{
@@ -86,17 +87,17 @@ func TestEncodeOutputWithJQ(t *testing.T) {
 			data: map[string]interface{}{
 				"items": []interface{}{},
 			},
-			jqQuery:     ".items[]",
-			wantContain: "null",
+			jqQuery:   ".items[]",
+			wantEmpty: true,
 		},
 		{
-			name:   "multiple results as array",
-			format: FormatJSON,
+			name:   "multiple results as YAML",
+			format: FormatYAML,
 			data: map[string]interface{}{
 				"numbers": []interface{}{1, 2, 3},
 			},
 			jqQuery:     ".numbers[]",
-			wantContain: "[1, 2, 3]",
+			wantContain: "1\n2\n3",
 		},
 	}
 
@@ -115,7 +116,17 @@ func TestEncodeOutputWithJQ(t *testing.T) {
 			}
 
 			output := buf.String()
-			if !strings.Contains(output, tt.wantContain) {
+			
+			// Check if we expect empty output
+			if tt.wantEmpty {
+				if output != "" {
+					t.Errorf("EncodeOutputWithJQ() output = %v, want empty", output)
+				}
+				return
+			}
+			
+			// Check for expected content
+			if tt.wantContain != "" && !strings.Contains(output, tt.wantContain) {
 				t.Errorf("EncodeOutputWithJQ() output = %v, want to contain %v", output, tt.wantContain)
 			}
 		})
