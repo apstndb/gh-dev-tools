@@ -72,7 +72,7 @@ gh-helper issues show 37 --jq '.issueShow.issue | {title, state, labels}'
 gh-helper reviews fetch 306 --jq '.reviews[] | select(.state == "APPROVED")'
 
 # Transform output
-gh-helper reviews fetch 306 --jq '.reviews[].author.login' | sort | uniq
+gh-helper reviews fetch 306 --jq '.reviews[].author.login'
 
 # Complex queries
 gh-helper issues show 248 --include-sub --jq '.issueShow.issue.subIssues.nodes[] | select(.state == "OPEN") | .title'
@@ -82,7 +82,7 @@ The jq integration:
 - Works with both YAML and JSON output formats
 - Processes data before final output encoding
 - Supports all standard jq features
-- Includes a 30-second timeout for complex queries
+- Includes timeout protection for complex queries
 - Provides helpful error messages for invalid queries
 
 ## Development

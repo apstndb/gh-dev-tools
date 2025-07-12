@@ -20,6 +20,9 @@ const (
 	FormatYAML     OutputFormat = "yaml"
 	FormatJSON     OutputFormat = "json"
 	FormatMarkdown OutputFormat = "markdown"
+
+	// jqQueryTimeout is the maximum time allowed for jq query execution
+	jqQueryTimeout = 30 * time.Second
 )
 
 // ResolveFormat resolves the output format from command flags
@@ -106,7 +109,7 @@ func EncodeOutputWithJQ(w io.Writer, format OutputFormat, data interface{}, jqQu
 	}
 
 	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), jqQueryTimeout)
 	defer cancel()
 
 	// Execute pipeline with writer option
