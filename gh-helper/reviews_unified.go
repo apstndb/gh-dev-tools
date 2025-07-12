@@ -274,7 +274,7 @@ func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodie
 		}
 		
 		output["reviewThreads"] = map[string]interface{}{
-			"totalCount":       len(data.Threads),
+			"totalCount":       data.ThreadPageInfo.TotalCount, // Use actual total from GraphQL
 			"unresolvedCount":  unresolvedCount,
 			"needingReply":     unresolvedThreads, // Now simply unresolved threads
 		}
