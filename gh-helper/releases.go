@@ -228,7 +228,8 @@ func analyzeRelease(cmd *cobra.Command, args []string) error {
 
 	// Output results
 	// Special handling for markdown format
-	if ResolveFormat(cmd) == FormatMarkdown {
+	format := ResolveFormat(cmd)
+	if format == FormatMarkdown {
 		return outputMarkdownAnalysis(analysis)
 	}
 

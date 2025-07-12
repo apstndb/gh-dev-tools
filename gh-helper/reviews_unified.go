@@ -153,13 +153,13 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 		return EncodeOutputWithCmd(cmd, unresolvedThreads)
 	}
 	
-	// Full data output
+	// Full data output - use specialized output function for YAML, direct output for JSON
 	format := ResolveFormat(cmd)
 	if format == FormatJSON {
 		return EncodeOutputWithCmd(cmd, data)
 	}
 	
-	// Use specialized output function for better structure  
+	// Use specialized output function for better YAML structure  
 	return outputFetch(cmd, data, includeReviewBodies, includeThreads)
 }
 

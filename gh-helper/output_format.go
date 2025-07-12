@@ -49,15 +49,6 @@ func ResolveFormat(cmd *cobra.Command) OutputFormat {
 
 // EncodeOutput encodes data to stdout using the given format
 func EncodeOutput(w io.Writer, format OutputFormat, data interface{}) error {
-	// Get jq query from command if available
-	cmd := currentCommand
-	if cmd != nil {
-		jqQuery, _ := cmd.Root().Flags().GetString("jq")
-		if jqQuery != "" {
-			return EncodeOutputWithJQ(w, format, data, jqQuery)
-		}
-	}
-
 	switch format {
 	case FormatJSON:
 		encoder := yamlformat.NewJSONEncoder(w)
@@ -70,26 +61,21 @@ func EncodeOutput(w io.Writer, format OutputFormat, data interface{}) error {
 
 // EncodeOutputWithCmd encodes data with optional jq query from command
 func EncodeOutputWithCmd(cmd *cobra.Command, data interface{}) error {
-	// Save current command for EncodeOutput to use
-	oldCmd := currentCommand
-	currentCommand = cmd
-	defer func() { currentCommand = oldCmd }()
-
 	format := ResolveFormat(cmd)
+	jqQuery, _ := cmd.Root().Flags().GetString("jq")
+	
+	if jqQuery != "" {
+		return EncodeOutputWithJQ(os.Stdout, format, data, jqQuery)
+	}
+	
 	return EncodeOutput(os.Stdout, format, data)
 }
 
-// currentCommand is used to pass command context to EncodeOutput
-var currentCommand *cobra.Command
 
 // EncodeOutputWithJQ encodes data with optional jq query filtering
 func EncodeOutputWithJQ(w io.Writer, format OutputFormat, data interface{}, jqQuery string) error {
 	// If no jq query provided, encode normally
 	if jqQuery == "" {
-		// Temporarily clear currentCommand to avoid recursion
-		oldCmd := currentCommand
-		currentCommand = nil
-		defer func() { currentCommand = oldCmd }()
 		return EncodeOutput(w, format, data)
 	}
 

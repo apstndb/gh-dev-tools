@@ -175,3 +175,43 @@ func TestEncodeOutputWithJQEdgeCases(t *testing.T) {
 		})
 	}
 }
+
+func TestEncodeOutputWithJQTimeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping timeout test in short mode")
+	}
+	
+	// This test verifies that long-running jq queries are terminated by the timeout
+	// We create a large dataset and use a complex query that would take too long
+	
+	// Create a large dataset with nested structures
+	largeData := make([]interface{}, 10000)
+	for i := range largeData {
+		largeData[i] = map[string]interface{}{
+			"id": i,
+			"nested": map[string]interface{}{
+				"value": i * 2,
+				"deep": map[string]interface{}{
+					"data": i * 3,
+				},
+			},
+		}
+	}
+	
+	// Use a pathologically slow jq query - cartesian product that would take forever
+	slowQuery := `. as $all | .[] | . as $item | $all[] | select(.id > $item.id) | {a: $item.id, b: .id}`
+	
+	var buf bytes.Buffer
+	err := EncodeOutputWithJQ(&buf, FormatJSON, largeData, slowQuery)
+	
+	// We expect this to timeout (context deadline exceeded)
+	if err == nil {
+		t.Error("Expected timeout error, but got none")
+	}
+	
+	// The error should contain "context", "deadline", or "timeout" indicating timeout
+	errStr := err.Error()
+	if !strings.Contains(errStr, "context") && !strings.Contains(errStr, "deadline") && !strings.Contains(errStr, "timeout") {
+		t.Errorf("Expected timeout-related error, got: %v", err)
+	}
+}
