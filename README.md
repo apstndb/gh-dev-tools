@@ -72,7 +72,7 @@ gh-helper issues show 37 --jq '.issueShow.issue | {title, state, labels}'
 gh-helper reviews fetch 306 --jq '.reviews[] | select(.state == "APPROVED")'
 
 # Transform output
-gh-helper issues list --jq '.issues[].title' | sort
+gh-helper reviews fetch 306 --jq '.reviews[].author.login' | sort | uniq
 
 # Complex queries
 gh-helper issues show 248 --include-sub --jq '.issueShow.issue.subIssues.nodes[] | select(.state == "OPEN") | .title'

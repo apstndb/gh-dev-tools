@@ -1,0 +1,166 @@
+package main
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+)
+
+func TestEncodeOutputWithJQ(t *testing.T) {
+	tests := []struct {
+		name        string
+		format      OutputFormat
+		data        interface{}
+		jqQuery     string
+		wantContain string
+		wantErr     bool
+	}{
+		{
+			name:   "no jq query - YAML output",
+			format: FormatYAML,
+			data: map[string]interface{}{
+				"name": "test",
+				"value": 42,
+			},
+			jqQuery:     "",
+			wantContain: "name: test",
+		},
+		{
+			name:   "no jq query - JSON output",
+			format: FormatJSON,
+			data: map[string]interface{}{
+				"name": "test",
+				"value": 42,
+			},
+			jqQuery:     "",
+			wantContain: `"name": "test"`,
+		},
+		{
+			name:   "extract single field",
+			format: FormatYAML,
+			data: map[string]interface{}{
+				"name": "test",
+				"value": 42,
+			},
+			jqQuery:     ".name",
+			wantContain: "test",
+		},
+		{
+			name:   "filter array",
+			format: FormatJSON,
+			data: map[string]interface{}{
+				"items": []interface{}{
+					map[string]interface{}{"id": 1, "active": true},
+					map[string]interface{}{"id": 2, "active": false},
+					map[string]interface{}{"id": 3, "active": true},
+				},
+			},
+			jqQuery:     ".items[] | select(.active) | .id",
+			wantContain: "1",
+		},
+		{
+			name:   "construct object",
+			format: FormatYAML,
+			data: map[string]interface{}{
+				"user": map[string]interface{}{
+					"name": "Alice",
+					"age":  30,
+					"email": "alice@example.com",
+				},
+			},
+			jqQuery:     ".user | {name, age}",
+			wantContain: "name: Alice",
+		},
+		{
+			name:   "invalid jq query",
+			format: FormatYAML,
+			data: map[string]interface{}{
+				"test": "data",
+			},
+			jqQuery: ".invalid syntax[",
+			wantErr: true,
+		},
+		{
+			name:   "empty result",
+			format: FormatJSON,
+			data: map[string]interface{}{
+				"items": []interface{}{},
+			},
+			jqQuery:     ".items[]",
+			wantContain: "null",
+		},
+		{
+			name:   "multiple results as array",
+			format: FormatJSON,
+			data: map[string]interface{}{
+				"numbers": []interface{}{1, 2, 3},
+			},
+			jqQuery:     ".numbers[]",
+			wantContain: "[1, 2, 3]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := EncodeOutputWithJQ(&buf, tt.format, tt.data, tt.jqQuery)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("EncodeOutputWithJQ() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if err != nil {
+				return // Skip output check if error was expected
+			}
+
+			output := buf.String()
+			if !strings.Contains(output, tt.wantContain) {
+				t.Errorf("EncodeOutputWithJQ() output = %v, want to contain %v", output, tt.wantContain)
+			}
+		})
+	}
+}
+
+func TestEncodeOutputWithJQEdgeCases(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    interface{}
+		jqQuery string
+		wantErr bool
+	}{
+		{
+			name:    "complex nested query",
+			data: map[string]interface{}{
+				"users": []interface{}{
+					map[string]interface{}{
+						"name": "Alice",
+						"posts": []interface{}{
+							map[string]interface{}{"id": 1, "title": "First"},
+							map[string]interface{}{"id": 2, "title": "Second"},
+						},
+					},
+				},
+			},
+			jqQuery: ".users[].posts[] | select(.id == 1) | .title",
+			wantErr: false,
+		},
+		{
+			name:    "error in jq expression",
+			data:    map[string]interface{}{"test": "value"},
+			jqQuery: ".test | tonumber",
+			wantErr: true, // "value" cannot be converted to number
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := EncodeOutputWithJQ(&buf, FormatJSON, tt.data, tt.jqQuery)
+			
+			if (err != nil) != tt.wantErr {
+				t.Errorf("EncodeOutputWithJQ() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
