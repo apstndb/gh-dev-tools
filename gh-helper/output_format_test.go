@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -209,9 +211,32 @@ func TestEncodeOutputWithJQTimeout(t *testing.T) {
 		t.Error("Expected timeout error, but got none")
 	}
 	
-	// The error should contain "context", "deadline", or "timeout" indicating timeout
-	errStr := err.Error()
-	if !strings.Contains(errStr, "context") && !strings.Contains(errStr, "deadline") && !strings.Contains(errStr, "timeout") {
-		t.Errorf("Expected timeout-related error, got: %v", err)
+	// Check for context deadline exceeded error
+	if !errors.Is(err, context.DeadlineExceeded) {
+		// Check error string for various timeout-related messages that might occur
+		errStr := err.Error()
+		timeoutMessages := []string{
+			"context deadline exceeded",      // Standard context timeout
+			"execution timeout",              // go-jq-yamlformat specific
+			"timeout after",                  // Common timeout pattern
+			"operation timed out",            // Generic timeout
+			"deadline exceeded",              // Context deadline
+			"context canceled",               // Context cancellation
+			"execution canceled",             // Execution cancellation
+			"query execution timeout",        // Query-specific timeout
+			"jq execution timeout",           // JQ-specific timeout
+		}
+		
+		found := false
+		for _, msg := range timeoutMessages {
+			if strings.Contains(strings.ToLower(errStr), strings.ToLower(msg)) {
+				found = true
+				break
+			}
+		}
+		
+		if !found {
+			t.Errorf("Expected timeout-related error, got: %v", err)
+		}
 	}
 }

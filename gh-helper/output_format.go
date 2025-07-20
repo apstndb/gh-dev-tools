@@ -62,6 +62,8 @@ func EncodeOutput(w io.Writer, format OutputFormat, data interface{}) error {
 // EncodeOutputWithCmd encodes data with optional jq query from command
 func EncodeOutputWithCmd(cmd *cobra.Command, data interface{}) error {
 	format := ResolveFormat(cmd)
+	// GetString error is intentionally ignored as the jq flag is guaranteed to exist
+	// (registered in rootCmd) and will return empty string if not set
 	jqQuery, _ := cmd.Root().Flags().GetString("jq")
 	
 	if jqQuery != "" {

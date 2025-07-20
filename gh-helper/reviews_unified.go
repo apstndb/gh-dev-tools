@@ -95,7 +95,10 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 	
 	// Adjust flags for thread-focused modes
 	if listThreads || threadsOnly {
-		// Force JSON for thread-focused modes by setting the flag
+		// Force JSON for thread-focused modes by programmatically setting the flag.
+		// This ensures EncodeOutputWithCmd will use JSON format when it calls ResolveFormat(cmd).
+		// This approach maintains centralized output handling while allowing commands to
+		// override format for specific output modes.
 		if err := cmd.Flags().Set("format", "json"); err != nil {
 			return fmt.Errorf("failed to set format flag: %w", err)
 		}
