@@ -212,31 +212,14 @@ func TestEncodeOutputWithJQTimeout(t *testing.T) {
 	}
 	
 	// Check for context deadline exceeded error
+	// Note: Ideally we would only check errors.Is(err, context.DeadlineExceeded),
+	// but go-jq-yamlformat currently returns "execution timeout after Xs" without
+	// properly wrapping the context.DeadlineExceeded error. This is a known issue
+	// that should be fixed in the library.
 	if !errors.Is(err, context.DeadlineExceeded) {
-		// Check error string for various timeout-related messages that might occur
-		errStr := err.Error()
-		timeoutMessages := []string{
-			"context deadline exceeded",      // Standard context timeout
-			"execution timeout",              // go-jq-yamlformat specific
-			"timeout after",                  // Common timeout pattern
-			"operation timed out",            // Generic timeout
-			"deadline exceeded",              // Context deadline
-			"context canceled",               // Context cancellation
-			"execution canceled",             // Execution cancellation
-			"query execution timeout",        // Query-specific timeout
-			"jq execution timeout",           // JQ-specific timeout
-		}
-		
-		found := false
-		for _, msg := range timeoutMessages {
-			if strings.Contains(strings.ToLower(errStr), strings.ToLower(msg)) {
-				found = true
-				break
-			}
-		}
-		
-		if !found {
-			t.Errorf("Expected timeout-related error, got: %v", err)
+		// Fallback check for the specific error message from go-jq-yamlformat
+		if !strings.Contains(err.Error(), "execution timeout after") {
+			t.Errorf("Expected context.DeadlineExceeded or 'execution timeout after', got: %v", err)
 		}
 	}
 }
