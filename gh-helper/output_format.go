@@ -74,13 +74,8 @@ func EncodeOutputWithCmd(cmd *cobra.Command, data interface{}) error {
 }
 
 
-// EncodeOutputWithJQ encodes data with optional jq query filtering
+// EncodeOutputWithJQ encodes data with jq query filtering
 func EncodeOutputWithJQ(ctx context.Context, w io.Writer, format OutputFormat, data interface{}, jqQuery string) error {
-	// If no jq query provided, encode normally
-	if jqQuery == "" {
-		return EncodeOutput(w, format, data)
-	}
-
 	// Create pipeline with jq query
 	pipeline, err := jqyaml.New(jqyaml.WithQuery(jqQuery))
 	if err != nil {

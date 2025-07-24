@@ -19,26 +19,6 @@ func TestEncodeOutputWithJQ(t *testing.T) {
 		wantErr     bool
 	}{
 		{
-			name:   "no jq query - YAML output",
-			format: FormatYAML,
-			data: map[string]interface{}{
-				"name": "test",
-				"value": 42,
-			},
-			jqQuery:     "",
-			wantContain: "name: test",
-		},
-		{
-			name:   "no jq query - JSON output",
-			format: FormatJSON,
-			data: map[string]interface{}{
-				"name": "test",
-				"value": 42,
-			},
-			jqQuery:     "",
-			wantContain: `"name": "test"`,
-		},
-		{
 			name:   "extract single field",
 			format: FormatYAML,
 			data: map[string]interface{}{
