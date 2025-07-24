@@ -99,7 +99,7 @@ func TestEncodeOutputWithJQ(t *testing.T) {
 				"numbers": []interface{}{1, 2, 3},
 			},
 			jqQuery:     ".numbers[]",
-			wantContain: "1\n2\n3",
+			wantContain: "1\n---\n2\n---\n3",
 		},
 	}
 

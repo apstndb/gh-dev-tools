@@ -4,6 +4,8 @@ github.com/apstndb/go-jq-yamlformat v0.0.0-20250624104049-8065cb9ec8ea h1:K66SQQ
 github.com/apstndb/go-jq-yamlformat v0.0.0-20250624104049-8065cb9ec8ea/go.mod h1:+HWC1dgcFqMnqy5/LzCe+fUcAqmZirOMlJqc6n4iaTk=
 github.com/apstndb/go-jq-yamlformat v0.0.0-20250625215401-705861fbbf58 h1:ggxOUhnBpK2UxJHf1JS1Z0y9d+Wfrx0so6ZR8NBOl3c=
 github.com/apstndb/go-jq-yamlformat v0.0.0-20250625215401-705861fbbf58/go.mod h1:klldr+wegB1KZME56IMyXEbpWdlnpstoHwJLXiHs6o8=
+github.com/apstndb/go-jq-yamlformat v0.0.0-20250724144043-044ee62273ff h1:qcDUJzSKYWPlv8KyEHThTJpMyg/z4iMjCTpWxKWyCrA=
+github.com/apstndb/go-jq-yamlformat v0.0.0-20250724144043-044ee62273ff/go.mod h1:klldr+wegB1KZME56IMyXEbpWdlnpstoHwJLXiHs6o8=
 github.com/apstndb/go-yamlformat v0.0.0-20250624080809-593ba2da569d h1:zRgNigAtm61iXpSKkXJgg+m4s1Dn8yJq/Euhg76oHg8=
 github.com/apstndb/go-yamlformat v0.0.0-20250624080809-593ba2da569d/go.mod h1:adI+0n+0AY1J+qhb7UbW3HjsUD15JCQPIih7FHLcrI4=
 github.com/apstndb/go-yamlformat v0.0.0-20250624144133-5961930dd0ba h1:l9MMbSfCb/JBF3wY3HuDM6cB5Y0AzGkXbmVzQ87J1vU=

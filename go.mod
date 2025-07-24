@@ -3,7 +3,7 @@ module github.com/apstndb/gh-dev-tools
 go 1.24
 
 require (
-	github.com/apstndb/go-jq-yamlformat v0.0.0-20250625215401-705861fbbf58
+	github.com/apstndb/go-jq-yamlformat v0.0.0-20250724144043-044ee62273ff
 	github.com/apstndb/go-yamlformat v0.0.0-20250624144133-5961930dd0ba
 	github.com/goccy/go-yaml v1.18.0
 	github.com/itchyny/gojq v0.12.17
