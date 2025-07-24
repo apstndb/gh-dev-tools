@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -66,11 +65,13 @@ func EncodeOutputWithCmd(cmd *cobra.Command, data interface{}) error {
 	// (registered in rootCmd) and will return empty string if not set
 	jqQuery, _ := cmd.Root().Flags().GetString("jq")
 	
+	out := cmd.OutOrStdout()
+	
 	if jqQuery != "" {
-		return EncodeOutputWithJQ(cmd.Context(), os.Stdout, format, data, jqQuery)
+		return EncodeOutputWithJQ(cmd.Context(), out, format, data, jqQuery)
 	}
 	
-	return EncodeOutput(os.Stdout, format, data)
+	return EncodeOutput(out, format, data)
 }
 
 
