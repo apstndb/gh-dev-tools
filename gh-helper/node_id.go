@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -128,8 +127,7 @@ func nodeIDIssue(cmd *cobra.Command, args []string) error {
 		},
 	}
 	
-	format := ResolveFormat(cmd)
-	return EncodeOutput(os.Stdout, format, result)
+	return EncodeOutputWithCmd(cmd, result)
 }
 
 func nodeIDPR(cmd *cobra.Command, args []string) error {
@@ -190,8 +188,7 @@ func nodeIDPR(cmd *cobra.Command, args []string) error {
 		},
 	}
 	
-	format := ResolveFormat(cmd)
-	return EncodeOutput(os.Stdout, format, result)
+	return EncodeOutputWithCmd(cmd, result)
 }
 
 func nodeIDBatch(cmd *cobra.Command, batch string) error {
@@ -309,6 +306,5 @@ func nodeIDBatch(cmd *cobra.Command, batch string) error {
 		NodeIDs: results,
 	}
 	
-	format := ResolveFormat(cmd)
-	return EncodeOutput(os.Stdout, format, response)
+	return EncodeOutputWithCmd(cmd, response)
 }

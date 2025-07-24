@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log/slog"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -88,8 +87,6 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 	needsReplyOnly, _ := cmd.Flags().GetBool("needs-reply-only")
 	
 	// Get output format using unified resolver
-	format := ResolveFormat(cmd)
-	
 	// Get exclude-urls flag
 	excludeURLs, err := cmd.Flags().GetBool("exclude-urls")
 	if err != nil {
@@ -98,7 +95,13 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 	
 	// Adjust flags for thread-focused modes
 	if listThreads || threadsOnly {
-		format = FormatJSON // Force JSON for thread-focused modes
+		// Force JSON for thread-focused modes by programmatically setting the flag.
+		// This ensures EncodeOutputWithCmd will use JSON format when it calls ResolveFormat(cmd).
+		// This approach maintains centralized output handling while allowing commands to
+		// override format for specific output modes.
+		if err := cmd.Flags().Set("format", "json"); err != nil {
+			return fmt.Errorf("failed to set format flag: %w", err)
+		}
 		includeReviewBodies = false
 		needsReplyOnly = true  // Implied for thread-focused modes
 		if listThreads {
@@ -150,20 +153,15 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 				unresolvedThreads = append(unresolvedThreads, thread)
 			}
 		}
-		return EncodeOutput(os.Stdout, format, unresolvedThreads)
+		return EncodeOutputWithCmd(cmd, unresolvedThreads)
 	}
 	
-	// Full data output
-	if format == FormatJSON {
-		return EncodeOutput(os.Stdout, format, data)
-	}
-	
-	// Use specialized output function for better structure  
-	return outputFetch(data, includeReviewBodies, includeThreads, format)
+	// Use specialized output function to create a consistent structure for both YAML and JSON
+	return outputFetch(cmd, data, includeReviewBodies, includeThreads)
 }
 
 // outputFetch creates unified fetch output using GitHub GraphQL API types
-func outputFetch(data *UnifiedReviewData, includeReviewBodies bool, includeThreads bool, format OutputFormat) error {
+func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodies bool, includeThreads bool) error {
 	// Use GitHub GraphQL PR metadata structure directly
 	output := map[string]interface{}{
 		// GitHub GraphQL PullRequest fields
@@ -280,5 +278,5 @@ func outputFetch(data *UnifiedReviewData, includeReviewBodies bool, includeThrea
 	}
 	
 	// Output using unified encoder
-	return EncodeOutput(os.Stdout, format, output)
+	return EncodeOutputWithCmd(cmd, output)
 }

@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
-	"github.com/goccy/go-yaml"
+	jqyaml "github.com/apstndb/go-jq-yamlformat"
+	yamlformat "github.com/apstndb/go-yamlformat"
 	"github.com/spf13/cobra"
 )
 
@@ -16,33 +19,10 @@ const (
 	FormatYAML     OutputFormat = "yaml"
 	FormatJSON     OutputFormat = "json"
 	FormatMarkdown OutputFormat = "markdown"
+
+	// jqQueryTimeout is the maximum time allowed for jq query execution
+	jqQueryTimeout = 30 * time.Second
 )
-
-// IsValid checks if the format is supported
-func (f OutputFormat) IsValid() bool {
-	return f == FormatYAML || f == FormatJSON || f == FormatMarkdown
-}
-
-// ParseFormat parses a string into an OutputFormat
-func ParseFormat(s string) (OutputFormat, error) {
-	format := OutputFormat(strings.ToLower(s))
-	if !format.IsValid() {
-		return "", fmt.Errorf("invalid format: %s (valid: yaml, json, markdown)", s)
-	}
-	return format, nil
-}
-
-// NewEncoder creates a new encoder for the specified format using goccy/go-yaml
-func NewEncoder(w io.Writer, format OutputFormat) *yaml.Encoder {
-	switch format {
-	case FormatJSON:
-		return yaml.NewEncoder(w, yaml.JSON(), yaml.UseJSONMarshaler())
-	case FormatYAML:
-		return yaml.NewEncoder(w, yaml.UseJSONMarshaler())
-	default:
-		return yaml.NewEncoder(w, yaml.UseJSONMarshaler()) // Default to YAML
-	}
-}
 
 // ResolveFormat resolves the output format from command flags
 // Handles mutually exclusive --format, --json, --yaml flags (enforced by cobra), defaults to YAML
@@ -57,30 +37,78 @@ func ResolveFormat(cmd *cobra.Command) OutputFormat {
 	
 	// Check main format flag
 	formatStr, _ := cmd.Flags().GetString("format")
-	format, err := ParseFormat(formatStr)
-	if err != nil {
-		return FormatYAML // Default fallback for invalid format
+	format := OutputFormat(strings.ToLower(formatStr))
+	switch format {
+	case FormatJSON, FormatYAML, FormatMarkdown:
+		return format
+	default:
+		return FormatYAML // Default
 	}
-	return format
 }
 
-// EncodeOutput encodes data to the specified writer using the given format
+// EncodeOutput encodes data to stdout using the given format
 func EncodeOutput(w io.Writer, format OutputFormat, data interface{}) error {
-	encoder := NewEncoder(w, format)
-	return encoder.Encode(data)
-}
-
-// Marshal marshals data using the specified format
-func (f OutputFormat) Marshal(data interface{}) ([]byte, error) {
-	options := []yaml.EncodeOption{yaml.UseJSONMarshaler()}
-	if f == FormatJSON {
-		options = append(options, yaml.JSON())
+	switch format {
+	case FormatJSON:
+		encoder := yamlformat.NewJSONEncoder(w)
+		return encoder.Encode(data)
+	default: // YAML and others
+		encoder := yamlformat.NewEncoder(w)
+		return encoder.Encode(data)
 	}
-	return yaml.MarshalWithOptions(data, options...)
 }
 
-// Unmarshal unmarshals data using consistent options (format-agnostic)
+// EncodeOutputWithCmd encodes data with optional jq query from command
+func EncodeOutputWithCmd(cmd *cobra.Command, data interface{}) error {
+	format := ResolveFormat(cmd)
+	// GetString error is intentionally ignored as the jq flag is guaranteed to exist
+	// (registered in rootCmd) and will return empty string if not set
+	jqQuery, _ := cmd.Root().Flags().GetString("jq")
+	
+	out := cmd.OutOrStdout()
+	
+	if jqQuery != "" {
+		return EncodeOutputWithJQ(cmd.Context(), out, format, data, jqQuery)
+	}
+	
+	return EncodeOutput(out, format, data)
+}
+
+
+// EncodeOutputWithJQ encodes data with jq query filtering
+func EncodeOutputWithJQ(ctx context.Context, w io.Writer, format OutputFormat, data interface{}, jqQuery string) error {
+	// Create pipeline with jq query
+	pipeline, err := jqyaml.New(jqyaml.WithQuery(jqQuery))
+	if err != nil {
+		return fmt.Errorf("failed to create jq pipeline: %w", err)
+	}
+
+	// Convert OutputFormat to yamlformat.Format
+	var yf yamlformat.Format
+	switch format {
+	case FormatJSON:
+		yf = yamlformat.FormatJSON
+	default:
+		yf = yamlformat.FormatYAML
+	}
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(ctx, jqQueryTimeout)
+	defer cancel()
+
+	// Execute pipeline with writer option
+	return pipeline.Execute(ctx, data, jqyaml.WithWriter(w, yf))
+}
+
+// Unmarshal unmarshals data using yamlformat
 func Unmarshal(data []byte, v interface{}) error {
-	return yaml.UnmarshalWithOptions(data, v, yaml.UseJSONUnmarshaler())
+	return yamlformat.Unmarshal(data, v)
 }
 
+// Marshal marshals data for the JSON format (used in github.go)
+func (f OutputFormat) Marshal(data interface{}) ([]byte, error) {
+	if f == FormatJSON {
+		return yamlformat.MarshalJSON(data)
+	}
+	return yamlformat.Marshal(data)
+}

@@ -347,12 +347,11 @@ func createIssue(cmd *cobra.Command, args []string) error {
 	}
 
 	// Output result
-	format := ResolveFormat(cmd)
 	output := map[string]interface{}{
 		"issue": result,
 	}
 
-	return EncodeOutput(os.Stdout, format, output)
+	return EncodeOutputWithCmd(cmd, output)
 }
 
 // Helper methods that need to be added to GitHubClient
@@ -1049,12 +1048,11 @@ func showIssue(cmd *cobra.Command, args []string) error {
 	}
 	
 	// Output result
-	format := ResolveFormat(cmd)
 	output := map[string]interface{}{
 		"issueShow": result,
 	}
 	
-	return EncodeOutput(os.Stdout, format, output)
+	return EncodeOutputWithCmd(cmd, output)
 }
 
 // ReorderSubIssue reorders a sub-issue within its parent's sub-issue list
@@ -1612,10 +1610,9 @@ func editIssue(cmd *cobra.Command, args []string) error {
 	}
 	
 	// Output result
-	format := ResolveFormat(cmd)
 	output := map[string]interface{}{
 		"issueEdit": result,
 	}
 	
-	return EncodeOutput(os.Stdout, format, output)
+	return EncodeOutputWithCmd(cmd, output)
 }
