@@ -106,7 +106,7 @@ func TestEncodeOutputWithJQ(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			err := EncodeOutputWithJQ(&buf, tt.format, tt.data, tt.jqQuery)
+			err := EncodeOutputWithJQ(context.Background(), &buf, tt.format, tt.data, tt.jqQuery)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("EncodeOutputWithJQ() error = %v, wantErr %v", err, tt.wantErr)
@@ -169,7 +169,7 @@ func TestEncodeOutputWithJQEdgeCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			err := EncodeOutputWithJQ(&buf, FormatJSON, tt.data, tt.jqQuery)
+			err := EncodeOutputWithJQ(context.Background(), &buf, FormatJSON, tt.data, tt.jqQuery)
 			
 			if (err != nil) != tt.wantErr {
 				t.Errorf("EncodeOutputWithJQ() error = %v, wantErr %v", err, tt.wantErr)
@@ -204,7 +204,7 @@ func TestEncodeOutputWithJQTimeout(t *testing.T) {
 	slowQuery := `. as $all | .[] | . as $item | $all[] | select(.id > $item.id) | {a: $item.id, b: .id}`
 	
 	var buf bytes.Buffer
-	err := EncodeOutputWithJQ(&buf, FormatJSON, largeData, slowQuery)
+	err := EncodeOutputWithJQ(context.Background(), &buf, FormatJSON, largeData, slowQuery)
 	
 	// We expect this to timeout (context deadline exceeded)
 	if err == nil {

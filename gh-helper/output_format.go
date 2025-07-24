@@ -67,7 +67,7 @@ func EncodeOutputWithCmd(cmd *cobra.Command, data interface{}) error {
 	jqQuery, _ := cmd.Root().Flags().GetString("jq")
 	
 	if jqQuery != "" {
-		return EncodeOutputWithJQ(os.Stdout, format, data, jqQuery)
+		return EncodeOutputWithJQ(cmd.Context(), os.Stdout, format, data, jqQuery)
 	}
 	
 	return EncodeOutput(os.Stdout, format, data)
@@ -75,7 +75,7 @@ func EncodeOutputWithCmd(cmd *cobra.Command, data interface{}) error {
 
 
 // EncodeOutputWithJQ encodes data with optional jq query filtering
-func EncodeOutputWithJQ(w io.Writer, format OutputFormat, data interface{}, jqQuery string) error {
+func EncodeOutputWithJQ(ctx context.Context, w io.Writer, format OutputFormat, data interface{}, jqQuery string) error {
 	// If no jq query provided, encode normally
 	if jqQuery == "" {
 		return EncodeOutput(w, format, data)
@@ -97,7 +97,7 @@ func EncodeOutputWithJQ(w io.Writer, format OutputFormat, data interface{}, jqQu
 	}
 
 	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), jqQueryTimeout)
+	ctx, cancel := context.WithTimeout(ctx, jqQueryTimeout)
 	defer cancel()
 
 	// Execute pipeline with writer option

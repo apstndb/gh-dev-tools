@@ -10,3 +10,6 @@
 
 # IDE settings
 .idea/
+
+# OS files
+.DS_Store
