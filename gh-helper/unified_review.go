@@ -88,7 +88,7 @@ type UnifiedReviewOptions struct {
 	ReviewAfterCursor    string // Pagination cursor for reviews (for next page)
 	ReviewBeforeCursor   string // Pagination cursor for reviews (for previous page)
 	ThreadAfterCursor    string // Pagination cursor for threads
-	NeedsReplyOnly       bool   // Filter to only unresolved threads (GraphQL optimization)
+	NeedsReplyOnly       bool   // Filter to only unresolved threads
 	ExcludeURLs          bool   // Exclude URLs from GraphQL query
 }
 
@@ -567,8 +567,15 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 
 	// Process threads - focus on resolved status only
 	var threads []ThreadData
-	for _, thread := range pr.ReviewThreads.Nodes {
-		// Apply NeedsReplyOnly filter - simply means unresolved threads
+	
+	// Determine which thread nodes to process based on pagination
+	threadNodes := pr.ReviewThreads.Nodes
+	if useThreadsAfter && pr.ReviewThreadsAfter.Nodes != nil {
+		threadNodes = pr.ReviewThreadsAfter.Nodes
+	}
+	
+	for _, thread := range threadNodes {
+		// Apply unresolved-only filter
 		if opts.NeedsReplyOnly && thread.IsResolved {
 			continue  // Skip resolved threads when only unresolved threads are requested
 		}
@@ -616,12 +623,22 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 
 	var threadPageInfo PageInfo
 	if opts.IncludeThreads {
-		threadPageInfo = PageInfo{
-			HasNextPage:     pr.ReviewThreads.PageInfo.HasNextPage,
-			HasPreviousPage: pr.ReviewThreads.PageInfo.HasPreviousPage,
-			StartCursor:     pr.ReviewThreads.PageInfo.StartCursor,
-			EndCursor:       pr.ReviewThreads.PageInfo.EndCursor,
-			TotalCount:      pr.ReviewThreads.TotalCount,
+		if useThreadsAfter {
+			threadPageInfo = PageInfo{
+				HasNextPage:     pr.ReviewThreadsAfter.PageInfo.HasNextPage,
+				HasPreviousPage: pr.ReviewThreadsAfter.PageInfo.HasPreviousPage,
+				StartCursor:     pr.ReviewThreadsAfter.PageInfo.StartCursor,
+				EndCursor:       pr.ReviewThreadsAfter.PageInfo.EndCursor,
+				TotalCount:      pr.ReviewThreadsAfter.TotalCount,
+			}
+		} else {
+			threadPageInfo = PageInfo{
+				HasNextPage:     pr.ReviewThreads.PageInfo.HasNextPage,
+				HasPreviousPage: pr.ReviewThreads.PageInfo.HasPreviousPage,
+				StartCursor:     pr.ReviewThreads.PageInfo.StartCursor,
+				EndCursor:       pr.ReviewThreads.PageInfo.EndCursor,
+				TotalCount:      pr.ReviewThreads.TotalCount,
+			}
 		}
 	}
 

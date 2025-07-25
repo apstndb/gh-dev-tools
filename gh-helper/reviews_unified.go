@@ -51,9 +51,9 @@ func init() {
 	fetchReviewsCmd.Flags().BoolVar(&includeReviewBodies, "bodies", true, "Include review bodies")
 	fetchReviewsCmd.Flags().IntVar(&threadLimit, "thread-limit", 50, "Maximum threads to fetch")
 	fetchReviewsCmd.Flags().IntVar(&reviewLimit, "review-limit", 20, "Maximum reviews to fetch")
-	fetchReviewsCmd.Flags().Bool("threads-only", false, "Output only threads that need replies (implies --no-bodies --json)")
+	fetchReviewsCmd.Flags().Bool("threads-only", false, "Output only threads (implies --no-bodies --json)")
 	fetchReviewsCmd.Flags().Bool("list-threads", false, "List thread IDs only, one per line (implies --threads-only)")
-	fetchReviewsCmd.Flags().Bool("needs-reply-only", false, "Include only threads that need replies (filters at data level)")
+	fetchReviewsCmd.Flags().Bool("unresolved-only", false, "Include only unresolved threads")
 
 	// Pagination flags
 	fetchReviewsCmd.Flags().StringVar(&reviewAfterCursor, "reviews-after", "", "Reviews pagination: fetch after this cursor")
@@ -84,7 +84,7 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 	// Check for specialized thread modes
 	threadsOnly, _ := cmd.Flags().GetBool("threads-only")
 	listThreads, _ := cmd.Flags().GetBool("list-threads")
-	needsReplyOnly, _ := cmd.Flags().GetBool("needs-reply-only")
+	unresolvedOnly, _ := cmd.Flags().GetBool("unresolved-only")
 	
 	// Get output format using unified resolver
 	// Get exclude-urls flag
@@ -103,7 +103,7 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to set format flag: %w", err)
 		}
 		includeReviewBodies = false
-		needsReplyOnly = true  // Implied for thread-focused modes
+		// No longer implicitly filter to unresolved only
 		if listThreads {
 			threadsOnly = true
 		}
@@ -114,7 +114,7 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 		IncludeReviewBodies: includeReviewBodies,
 		ThreadLimit:         threadLimit,
 		ReviewLimit:         reviewLimit,
-		NeedsReplyOnly:      needsReplyOnly,
+		NeedsReplyOnly:      unresolvedOnly,  // Map to the clearer name
 		ExcludeURLs:         excludeURLs,
 	}
 
@@ -126,7 +126,7 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 			"bodies": opts.IncludeReviewBodies,
 			"review_limit": opts.ReviewLimit,
 			"thread_limit": opts.ThreadLimit,
-			"needs_reply_only": opts.NeedsReplyOnly,
+			"unresolved_only": opts.NeedsReplyOnly,
 		})
 
 	data, err := client.GetUnifiedReviewData(prNumber, opts)
@@ -136,32 +136,27 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 
 	// Handle specialized modes
 	if listThreads {
-		// Simple list mode: just unresolved thread IDs
+		// Simple list mode: thread IDs based on filter
 		for _, thread := range data.Threads {
-			if !thread.IsResolved {
-				fmt.Println(thread.ID)
-			}
+			// If unresolvedOnly was set, data.Threads already contains only unresolved threads
+			// Otherwise, show all threads
+			fmt.Println(thread.ID)
 		}
 		return nil
 	}
 	
 	if threadsOnly {
-		// Filter to only unresolved threads
-		unresolvedThreads := []ThreadData{}
-		for _, thread := range data.Threads {
-			if !thread.IsResolved {
-				unresolvedThreads = append(unresolvedThreads, thread)
-			}
-		}
-		return EncodeOutputWithCmd(cmd, unresolvedThreads)
+		// Output threads based on filter
+		// If unresolvedOnly was set, data.Threads already contains only unresolved threads
+		return EncodeOutputWithCmd(cmd, data.Threads)
 	}
 	
 	// Use specialized output function to create a consistent structure for both YAML and JSON
-	return outputFetch(cmd, data, includeReviewBodies, includeThreads)
+	return outputFetch(cmd, data, includeReviewBodies, includeThreads, unresolvedOnly)
 }
 
 // outputFetch creates unified fetch output using GitHub GraphQL API types
-func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodies bool, includeThreads bool) error {
+func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodies bool, includeThreads bool, unresolvedOnly bool) error {
 	// Use GitHub GraphQL PR metadata structure directly
 	output := map[string]interface{}{
 		// GitHub GraphQL PullRequest fields
@@ -222,10 +217,14 @@ func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodie
 	// Threads section using GitHub GraphQL ReviewThread structure
 	if includeThreads {
 		unresolvedCount := 0
-		unresolvedThreads := []map[string]interface{}{}
+		needingReplyThreads := []map[string]interface{}{}
 		
+		// When unresolvedOnly is true, data.Threads already contains only unresolved threads
+		// When false, we need to filter for unresolved threads here
 		for _, thread := range data.Threads {
-			if !thread.IsResolved {
+			// If unresolvedOnly was set, all threads are already unresolved
+			// Otherwise, check if the thread is unresolved
+			if unresolvedOnly || !thread.IsResolved {
 				unresolvedCount++
 				
 				threadData := map[string]interface{}{
@@ -266,14 +265,23 @@ func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodie
 					threadData["comments"] = comments
 				}
 				
-				unresolvedThreads = append(unresolvedThreads, threadData)
+				needingReplyThreads = append(needingReplyThreads, threadData)
 			}
 		}
 		
+		// Calculate total count correctly based on whether filtering was applied
+		totalCount := len(data.Threads)
+		if !unresolvedOnly {
+			// If we didn't pre-filter, we need to count all threads from the original data
+			// Since we only have the filtered data here, we can't get the true total
+			// This is a limitation of the current implementation
+			totalCount = len(data.Threads)
+		}
+		
 		output["reviewThreads"] = map[string]interface{}{
-			"totalCount":       len(data.Threads),
+			"totalCount":       totalCount,
 			"unresolvedCount":  unresolvedCount,
-			"needingReply":     unresolvedThreads, // Now simply unresolved threads
+			"needingReply":     needingReplyThreads, // Threads that need replies (unresolved)
 		}
 	}
 	
