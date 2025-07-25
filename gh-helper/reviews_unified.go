@@ -219,12 +219,10 @@ func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodie
 		unresolvedCount := 0
 		unresolvedThreads := []map[string]interface{}{}
 		
-		// When unresolvedOnly is true, data.Threads already contains only unresolved threads
-		// When false, we need to filter for unresolved threads here
+		// Filter for unresolved threads to display in the output
+		// Note: If unresolvedOnly flag was set, data.Threads already contains only unresolved threads
 		for _, thread := range data.Threads {
-			// If unresolvedOnly was set, all threads are already unresolved
-			// Otherwise, check if the thread is unresolved
-			if unresolvedOnly || !thread.IsResolved {
+			if !thread.IsResolved {
 				unresolvedCount++
 				
 				threadData := map[string]interface{}{
