@@ -269,14 +269,8 @@ func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodie
 			}
 		}
 		
-		// Calculate total count correctly based on whether filtering was applied
-		totalCount := len(data.Threads)
-		if !unresolvedOnly {
-			// If we didn't pre-filter, we need to count all threads from the original data
-			// Since we only have the filtered data here, we can't get the true total
-			// This is a limitation of the current implementation
-			totalCount = len(data.Threads)
-		}
+		// Calculate total count from page info for accuracy
+		totalCount := data.ThreadPageInfo.TotalCount
 		
 		output["reviewThreads"] = map[string]interface{}{
 			"totalCount":       totalCount,

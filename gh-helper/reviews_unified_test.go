@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func TestNeedsReplyOnlyFilter(t *testing.T) {
+func TestUnresolvedOnlyFilter(t *testing.T) {
 	// Create test data with both resolved and unresolved threads
 	testData := &UnifiedReviewData{
 		PR: PRMetadata{
@@ -69,17 +69,20 @@ func TestNeedsReplyOnlyFilter(t *testing.T) {
 		},
 		CurrentUser: "testuser",
 		FetchedAt:   time.Now(),
+		ThreadPageInfo: PageInfo{
+			TotalCount: 3,
+		},
 	}
 
 	tests := []struct {
 		name               string
 		data               *UnifiedReviewData
-		needsReplyOnly     bool
+		unresolvedOnly     bool
 		expectedThreadCount int
 		expectedUnresolved int
 	}{
 		{
-			name:               "With needsReplyOnly filter - pre-filtered data",
+			name:               "With unresolvedOnly filter - pre-filtered data",
 			data:               &UnifiedReviewData{
 				PR:          testData.PR,
 				Reviews:     testData.Reviews,
@@ -87,15 +90,18 @@ func TestNeedsReplyOnlyFilter(t *testing.T) {
 				Threads:     []ThreadData{testData.Threads[0], testData.Threads[2]},
 				CurrentUser: testData.CurrentUser,
 				FetchedAt:   testData.FetchedAt,
+				ThreadPageInfo: PageInfo{
+					TotalCount: 2,  // Pre-filtered, so only 2 unresolved threads
+				},
 			},
-			needsReplyOnly:     true,
+			unresolvedOnly:     true,
 			expectedThreadCount: 2,
 			expectedUnresolved: 2,
 		},
 		{
-			name:               "Without needsReplyOnly filter - all threads",
+			name:               "Without unresolvedOnly filter - all threads",
 			data:               testData,
-			needsReplyOnly:     false,
+			unresolvedOnly:     false,
 			expectedThreadCount: 3,
 			expectedUnresolved: 2,
 		},
@@ -108,7 +114,7 @@ func TestNeedsReplyOnlyFilter(t *testing.T) {
 			needingReplyCount := 0
 			
 			for _, thread := range tt.data.Threads {
-				if tt.needsReplyOnly || !thread.IsResolved {
+				if tt.unresolvedOnly || !thread.IsResolved {
 					unresolvedCount++
 					needingReplyCount++
 				}
