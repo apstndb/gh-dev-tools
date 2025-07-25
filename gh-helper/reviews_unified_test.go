@@ -111,27 +111,20 @@ func TestUnresolvedOnlyFilter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Simulate the thread counting logic from outputFetch
 			unresolvedCount := 0
-			needingReplyCount := 0
-			
 			for _, thread := range tt.data.Threads {
 				if tt.unresolvedOnly || !thread.IsResolved {
 					unresolvedCount++
-					needingReplyCount++
 				}
 			}
-			
+
 			if unresolvedCount != tt.expectedUnresolved {
 				t.Errorf("Expected %d unresolved threads, got %d", tt.expectedUnresolved, unresolvedCount)
 			}
-			
-			if needingReplyCount != tt.expectedUnresolved {
-				t.Errorf("Expected %d threads needing reply, got %d", tt.expectedUnresolved, needingReplyCount)
-			}
-			
-			// Verify total count
-			totalCount := len(tt.data.Threads)
+
+			// Verify total count from PageInfo, which reflects the implementation
+			totalCount := tt.data.ThreadPageInfo.TotalCount
 			if totalCount != tt.expectedThreadCount {
-				t.Errorf("Expected %d total threads, got %d", tt.expectedThreadCount, totalCount)
+				t.Errorf("Expected %d total threads from PageInfo, got %d", tt.expectedThreadCount, totalCount)
 			}
 		})
 	}
