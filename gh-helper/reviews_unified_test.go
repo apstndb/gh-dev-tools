@@ -77,7 +77,6 @@ func TestUnresolvedOnlyFilter(t *testing.T) {
 	tests := []struct {
 		name               string
 		data               *UnifiedReviewData
-		unresolvedOnly     bool
 		expectedThreadCount int
 		expectedUnresolved int
 	}{
@@ -94,14 +93,12 @@ func TestUnresolvedOnlyFilter(t *testing.T) {
 					TotalCount: 2,  // Pre-filtered, so only 2 unresolved threads
 				},
 			},
-			unresolvedOnly:     true,
 			expectedThreadCount: 2,
 			expectedUnresolved: 2,
 		},
 		{
 			name:               "Without unresolvedOnly filter - all threads",
 			data:               testData,
-			unresolvedOnly:     false,
 			expectedThreadCount: 3,
 			expectedUnresolved: 2,
 		},
