@@ -36,7 +36,7 @@ func TestUnresolvedOnlyFilter(t *testing.T) {
 				ID:         "THREAD2",
 				Path:       "file2.go",
 				Line:       intPtr(20),
-				IsResolved: true, // Resolved - should be excluded when needsReplyOnly is true
+				IsResolved: true, // Resolved - should be excluded when unresolvedOnly is true
 				IsOutdated: false,
 				Comments: []ThreadComment{
 					{
@@ -112,7 +112,7 @@ func TestUnresolvedOnlyFilter(t *testing.T) {
 			// Simulate the thread counting logic from outputFetch
 			unresolvedCount := 0
 			for _, thread := range tt.data.Threads {
-				if tt.unresolvedOnly || !thread.IsResolved {
+				if !thread.IsResolved {
 					unresolvedCount++
 				}
 			}

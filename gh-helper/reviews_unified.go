@@ -152,11 +152,11 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 	}
 	
 	// Use specialized output function to create a consistent structure for both YAML and JSON
-	return outputFetch(cmd, data, includeReviewBodies, includeThreads, unresolvedOnly)
+	return outputFetch(cmd, data, includeReviewBodies, includeThreads)
 }
 
 // outputFetch creates unified fetch output using GitHub GraphQL API types
-func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodies bool, includeThreads bool, unresolvedOnly bool) error {
+func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodies bool, includeThreads bool) error {
 	// Use GitHub GraphQL PR metadata structure directly
 	output := map[string]interface{}{
 		// GitHub GraphQL PullRequest fields
