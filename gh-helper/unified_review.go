@@ -88,7 +88,7 @@ type UnifiedReviewOptions struct {
 	ReviewAfterCursor    string // Pagination cursor for reviews (for next page)
 	ReviewBeforeCursor   string // Pagination cursor for reviews (for previous page)
 	ThreadAfterCursor    string // Pagination cursor for threads
-	NeedsReplyOnly       bool   // Filter to only unresolved threads
+	UnresolvedOnly       bool   // Filter to only unresolved threads
 	ExcludeURLs          bool   // Exclude URLs from GraphQL query
 }
 
@@ -576,7 +576,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 	
 	for _, thread := range threadNodes {
 		// Apply unresolved-only filter
-		if opts.NeedsReplyOnly && thread.IsResolved {
+		if opts.UnresolvedOnly && thread.IsResolved {
 			continue  // Skip resolved threads when only unresolved threads are requested
 		}
 		

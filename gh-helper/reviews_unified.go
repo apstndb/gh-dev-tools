@@ -114,7 +114,7 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 		IncludeReviewBodies: includeReviewBodies,
 		ThreadLimit:         threadLimit,
 		ReviewLimit:         reviewLimit,
-		NeedsReplyOnly:      unresolvedOnly,  // Map to the clearer name
+		UnresolvedOnly:      unresolvedOnly,  // Use the clearer name
 		ExcludeURLs:         excludeURLs,
 	}
 
@@ -126,7 +126,7 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 			"bodies": opts.IncludeReviewBodies,
 			"review_limit": opts.ReviewLimit,
 			"thread_limit": opts.ThreadLimit,
-			"unresolved_only": opts.NeedsReplyOnly,
+			"unresolved_only": opts.UnresolvedOnly,
 		})
 
 	data, err := client.GetUnifiedReviewData(prNumber, opts)
@@ -217,7 +217,7 @@ func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodie
 	// Threads section using GitHub GraphQL ReviewThread structure
 	if includeThreads {
 		unresolvedCount := 0
-		needingReplyThreads := []map[string]interface{}{}
+		unresolvedThreads := []map[string]interface{}{}
 		
 		// When unresolvedOnly is true, data.Threads already contains only unresolved threads
 		// When false, we need to filter for unresolved threads here
@@ -265,7 +265,7 @@ func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodie
 					threadData["comments"] = comments
 				}
 				
-				needingReplyThreads = append(needingReplyThreads, threadData)
+				unresolvedThreads = append(unresolvedThreads, threadData)
 			}
 		}
 		
@@ -275,7 +275,7 @@ func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodie
 		output["reviewThreads"] = map[string]interface{}{
 			"totalCount":       totalCount,
 			"unresolvedCount":  unresolvedCount,
-			"needingReply":     needingReplyThreads, // Threads that need replies (unresolved)
+			"unresolvedThreads": unresolvedThreads, // Unresolved threads
 		}
 	}
 	
