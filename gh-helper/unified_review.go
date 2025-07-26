@@ -530,7 +530,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 	
 	// Determine which thread nodes to process based on pagination
 	threadNodes := pr.ReviewThreads.Nodes
-	if useThreadsAfter && pr.ReviewThreadsAfter.Nodes != nil {
+	if useThreadsAfter {
 		threadNodes = pr.ReviewThreadsAfter.Nodes
 	}
 	
