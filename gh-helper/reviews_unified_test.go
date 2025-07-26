@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
-func TestUnresolvedOnlyFilter(t *testing.T) {
+func TestOutputFetchThreadFiltering(t *testing.T) {
 	// Create test data with both resolved and unresolved threads
-	testData := &UnifiedReviewData{
+	baseData := &UnifiedReviewData{
 		PR: PRMetadata{
 			Number: 123,
 			Title:  "Test PR",
@@ -19,7 +23,7 @@ func TestUnresolvedOnlyFilter(t *testing.T) {
 				ID:         "THREAD1",
 				Path:       "file1.go",
 				Line:       intPtr(10),
-				IsResolved: false, // Unresolved - should be included
+				IsResolved: false, // Unresolved
 				IsOutdated: false,
 				Comments: []ThreadComment{
 					{
@@ -29,14 +33,12 @@ func TestUnresolvedOnlyFilter(t *testing.T) {
 						CreatedAt: "2025-01-01T10:00:00Z",
 					},
 				},
-				NeedsReply:  true,
-				LastReplier: "reviewer1",
 			},
 			{
 				ID:         "THREAD2",
 				Path:       "file2.go",
 				Line:       intPtr(20),
-				IsResolved: true, // Resolved - should be excluded when unresolvedOnly is true
+				IsResolved: true, // Resolved
 				IsOutdated: false,
 				Comments: []ThreadComment{
 					{
@@ -46,14 +48,12 @@ func TestUnresolvedOnlyFilter(t *testing.T) {
 						CreatedAt: "2025-01-01T11:00:00Z",
 					},
 				},
-				NeedsReply:  false,
-				LastReplier: "author",
 			},
 			{
 				ID:         "THREAD3",
 				Path:       "file3.go",
 				Line:       intPtr(30),
-				IsResolved: false, // Unresolved - should be included
+				IsResolved: false, // Unresolved
 				IsOutdated: true,
 				Comments: []ThreadComment{
 					{
@@ -63,8 +63,6 @@ func TestUnresolvedOnlyFilter(t *testing.T) {
 						CreatedAt: "2025-01-01T12:00:00Z",
 					},
 				},
-				NeedsReply:  true,
-				LastReplier: "reviewer2",
 			},
 		},
 		CurrentUser: "testuser",
@@ -75,53 +73,117 @@ func TestUnresolvedOnlyFilter(t *testing.T) {
 	}
 
 	tests := []struct {
-		name               string
-		data               *UnifiedReviewData
-		expectedThreadCount int
-		expectedUnresolved int
+		name                      string
+		data                      *UnifiedReviewData
+		includeReviewBodies       bool
+		includeThreads            bool
+		expectedTotalCount        int
+		expectedUnresolvedCount   int
+		expectedUnresolvedThreads int
 	}{
 		{
-			name:               "With unresolvedOnly filter - pre-filtered data",
-			data:               &UnifiedReviewData{
-				PR:          testData.PR,
-				Reviews:     testData.Reviews,
-				// Simulate pre-filtered data (only unresolved threads)
-				Threads:     []ThreadData{testData.Threads[0], testData.Threads[2]},
-				CurrentUser: testData.CurrentUser,
-				FetchedAt:   testData.FetchedAt,
-				ThreadPageInfo: PageInfo{
-					TotalCount: 2,  // Pre-filtered, so only 2 unresolved threads
-				},
-			},
-			expectedThreadCount: 2,
-			expectedUnresolved: 2,
+			name:                      "All threads included",
+			data:                      baseData,
+			includeReviewBodies:       false,
+			includeThreads:            true,
+			expectedTotalCount:        3,
+			expectedUnresolvedCount:   2,
+			expectedUnresolvedThreads: 2,
 		},
 		{
-			name:               "Without unresolvedOnly filter - all threads",
-			data:               testData,
-			expectedThreadCount: 3,
-			expectedUnresolved: 2,
+			name: "Pre-filtered data (only unresolved)",
+			data: &UnifiedReviewData{
+				PR:      baseData.PR,
+				Reviews: baseData.Reviews,
+				// Simulate pre-filtered data from GetUnifiedReviewData
+				Threads: []ThreadData{
+					baseData.Threads[0], // THREAD1 (unresolved)
+					baseData.Threads[2], // THREAD3 (unresolved)
+				},
+				CurrentUser: baseData.CurrentUser,
+				FetchedAt:   baseData.FetchedAt,
+				ThreadPageInfo: PageInfo{
+					TotalCount: 2, // Total reflects pre-filtered count
+				},
+			},
+			includeReviewBodies:       false,
+			includeThreads:            true,
+			expectedTotalCount:        2,
+			expectedUnresolvedCount:   2,
+			expectedUnresolvedThreads: 2,
+		},
+		{
+			name:                      "Threads not included",
+			data:                      baseData,
+			includeReviewBodies:       false,
+			includeThreads:            false,
+			expectedTotalCount:        0, // No threads section in output
+			expectedUnresolvedCount:   0,
+			expectedUnresolvedThreads: 0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Simulate the thread counting logic from outputFetch
-			unresolvedCount := 0
-			for _, thread := range tt.data.Threads {
-				if !thread.IsResolved {
-					unresolvedCount++
+			// Create a command with output buffer
+			cmd := &cobra.Command{}
+			var buf bytes.Buffer
+			cmd.SetOut(&buf)
+			cmd.Flags().String("format", "json", "Output format")
+
+			// Call the actual outputFetch function
+			err := outputFetch(cmd, tt.data, tt.includeReviewBodies, tt.includeThreads)
+			if err != nil {
+				t.Fatalf("outputFetch returned error: %v", err)
+			}
+
+			// Parse the JSON output
+			var output map[string]interface{}
+			if err := json.Unmarshal(buf.Bytes(), &output); err != nil {
+				t.Fatalf("Failed to parse JSON output: %v", err)
+			}
+
+			// Verify thread section exists when expected
+			if tt.includeThreads {
+				reviewThreads, ok := output["reviewThreads"].(map[string]interface{})
+				if !ok {
+					t.Fatal("Expected reviewThreads in output")
 				}
-			}
 
-			if unresolvedCount != tt.expectedUnresolved {
-				t.Errorf("Expected %d unresolved threads, got %d", tt.expectedUnresolved, unresolvedCount)
-			}
+				// Check totalCount
+				totalCount := int(reviewThreads["totalCount"].(float64))
+				if totalCount != tt.expectedTotalCount {
+					t.Errorf("Expected totalCount %d, got %d", tt.expectedTotalCount, totalCount)
+				}
 
-			// Verify total count from PageInfo, which reflects the implementation
-			totalCount := tt.data.ThreadPageInfo.TotalCount
-			if totalCount != tt.expectedThreadCount {
-				t.Errorf("Expected %d total threads from PageInfo, got %d", tt.expectedThreadCount, totalCount)
+				// Check unresolvedCount
+				unresolvedCount := int(reviewThreads["unresolvedCount"].(float64))
+				if unresolvedCount != tt.expectedUnresolvedCount {
+					t.Errorf("Expected unresolvedCount %d, got %d", tt.expectedUnresolvedCount, unresolvedCount)
+				}
+
+				// Check unresolvedThreads array length
+				unresolvedThreads, ok := reviewThreads["unresolvedThreads"].([]interface{})
+				if !ok {
+					t.Fatal("Expected unresolvedThreads array in output")
+				}
+				if len(unresolvedThreads) != tt.expectedUnresolvedThreads {
+					t.Errorf("Expected %d unresolved threads, got %d", tt.expectedUnresolvedThreads, len(unresolvedThreads))
+				}
+
+				// Verify all threads in output are actually unresolved
+				for _, thread := range unresolvedThreads {
+					threadMap := thread.(map[string]interface{})
+					isResolved := threadMap["isResolved"].(bool)
+					if isResolved {
+						t.Error("Found resolved thread in unresolvedThreads array")
+					}
+				}
+			} else {
+				// Verify reviewThreads section doesn't exist
+				if _, ok := output["reviewThreads"]; ok {
+					t.Error("Did not expect reviewThreads in output when includeThreads is false")
+				}
 			}
 		})
 	}
