@@ -67,6 +67,11 @@ make build              # Build gh-helper tool
 
 ## Development Workflow
 
+### Temporary Files
+- **Always place temporary files under ./.tmp directory** - This directory is already in .gitignore
+- **Never create temporary files in the root directory** - Keep the workspace clean
+- **Examples**: Test scripts, debugging outputs, temporary data files
+
 ### Branch Management
 - **Always fetch before creating branches**: Run `git fetch origin` before creating any new branch
 - **Base branches on origin/main**: Always create feature branches from `origin/main` to ensure they include latest changes

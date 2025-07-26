@@ -88,7 +88,7 @@ type UnifiedReviewOptions struct {
 	ReviewAfterCursor    string // Pagination cursor for reviews (for next page)
 	ReviewBeforeCursor   string // Pagination cursor for reviews (for previous page)
 	ThreadAfterCursor    string // Pagination cursor for threads
-	NeedsReplyOnly       bool   // Filter to only unresolved threads (GraphQL optimization)
+	UnresolvedOnly       bool   // Filter to only unresolved threads
 	ExcludeURLs          bool   // Exclude URLs from GraphQL query
 }
 
@@ -325,13 +325,8 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 					Mergeable        string `json:"mergeable"`
 					MergeStateStatus string `json:"mergeStateStatus"`
 					Reviews struct {
-						TotalCount int `json:"totalCount"`
-						PageInfo   struct {
-							HasNextPage     bool   `json:"hasNextPage"`
-							HasPreviousPage bool   `json:"hasPreviousPage"`
-							StartCursor     string `json:"startCursor"`
-							EndCursor       string `json:"endCursor"`
-						} `json:"pageInfo"`
+						TotalCount int      `json:"totalCount"`
+						PageInfo   PageInfo `json:"pageInfo"`
 						Nodes []struct {
 							ID        string `json:"id"`
 							Author    struct {
@@ -352,13 +347,8 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 						} `json:"nodes"`
 					} `json:"reviews"`
 					ReviewsAfter struct {
-						TotalCount int `json:"totalCount"`
-						PageInfo   struct {
-							HasNextPage     bool   `json:"hasNextPage"`
-							HasPreviousPage bool   `json:"hasPreviousPage"`
-							StartCursor     string `json:"startCursor"`
-							EndCursor       string `json:"endCursor"`
-						} `json:"pageInfo"`
+						TotalCount int      `json:"totalCount"`
+						PageInfo   PageInfo `json:"pageInfo"`
 						Nodes []struct {
 							ID        string `json:"id"`
 							Author    struct {
@@ -379,13 +369,8 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 						} `json:"nodes"`
 					} `json:"reviewsAfter"`
 					ReviewsBefore struct {
-						TotalCount int `json:"totalCount"`
-						PageInfo   struct {
-							HasNextPage     bool   `json:"hasNextPage"`
-							HasPreviousPage bool   `json:"hasPreviousPage"`
-							StartCursor     string `json:"startCursor"`
-							EndCursor       string `json:"endCursor"`
-						} `json:"pageInfo"`
+						TotalCount int      `json:"totalCount"`
+						PageInfo   PageInfo `json:"pageInfo"`
 						Nodes []struct {
 							ID        string `json:"id"`
 							Author    struct {
@@ -406,13 +391,8 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 						} `json:"nodes"`
 					} `json:"reviewsBefore"`
 					ReviewThreads struct {
-						TotalCount int `json:"totalCount"`
-						PageInfo   struct {
-							HasNextPage     bool   `json:"hasNextPage"`
-							HasPreviousPage bool   `json:"hasPreviousPage"`
-							StartCursor     string `json:"startCursor"`
-							EndCursor       string `json:"endCursor"`
-						} `json:"pageInfo"`
+						TotalCount int      `json:"totalCount"`
+						PageInfo   PageInfo `json:"pageInfo"`
 						Nodes []struct {
 							ID         string `json:"id"`
 							Path       string `json:"path"`
@@ -433,13 +413,8 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 						} `json:"nodes"`
 					} `json:"reviewThreads"`
 					ReviewThreadsAfter struct {
-						TotalCount int `json:"totalCount"`
-						PageInfo   struct {
-							HasNextPage     bool   `json:"hasNextPage"`
-							HasPreviousPage bool   `json:"hasPreviousPage"`
-							StartCursor     string `json:"startCursor"`
-							EndCursor       string `json:"endCursor"`
-						} `json:"pageInfo"`
+						TotalCount int      `json:"totalCount"`
+						PageInfo   PageInfo `json:"pageInfo"`
 						Nodes []struct {
 							ID         string `json:"id"`
 							Path       string `json:"path"`
@@ -479,35 +454,20 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 		for _, review := range pr.ReviewsAfter.Nodes {
 			reviewNodes = append(reviewNodes, review)
 		}
-		reviewPageInfo = PageInfo{
-			HasNextPage:     pr.ReviewsAfter.PageInfo.HasNextPage,
-			HasPreviousPage: pr.ReviewsAfter.PageInfo.HasPreviousPage,
-			StartCursor:     pr.ReviewsAfter.PageInfo.StartCursor,
-			EndCursor:       pr.ReviewsAfter.PageInfo.EndCursor,
-			TotalCount:      pr.ReviewsAfter.TotalCount,
-		}
+		reviewPageInfo = pr.ReviewsAfter.PageInfo
+		reviewPageInfo.TotalCount = pr.ReviewsAfter.TotalCount
 	} else if useReviewsBefore {
 		for _, review := range pr.ReviewsBefore.Nodes {
 			reviewNodes = append(reviewNodes, review)
 		}
-		reviewPageInfo = PageInfo{
-			HasNextPage:     pr.ReviewsBefore.PageInfo.HasNextPage,
-			HasPreviousPage: pr.ReviewsBefore.PageInfo.HasPreviousPage,
-			StartCursor:     pr.ReviewsBefore.PageInfo.StartCursor,
-			EndCursor:       pr.ReviewsBefore.PageInfo.EndCursor,
-			TotalCount:      pr.ReviewsBefore.TotalCount,
-		}
+		reviewPageInfo = pr.ReviewsBefore.PageInfo
+		reviewPageInfo.TotalCount = pr.ReviewsBefore.TotalCount
 	} else {
 		for _, review := range pr.Reviews.Nodes {
 			reviewNodes = append(reviewNodes, review)
 		}
-		reviewPageInfo = PageInfo{
-			HasNextPage:     pr.Reviews.PageInfo.HasNextPage,
-			HasPreviousPage: pr.Reviews.PageInfo.HasPreviousPage,
-			StartCursor:     pr.Reviews.PageInfo.StartCursor,
-			EndCursor:       pr.Reviews.PageInfo.EndCursor,
-			TotalCount:      pr.Reviews.TotalCount,
-		}
+		reviewPageInfo = pr.Reviews.PageInfo
+		reviewPageInfo.TotalCount = pr.Reviews.TotalCount
 	}
 
 	// Process reviews with severity analysis
@@ -567,9 +527,16 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 
 	// Process threads - focus on resolved status only
 	var threads []ThreadData
-	for _, thread := range pr.ReviewThreads.Nodes {
-		// Apply NeedsReplyOnly filter - simply means unresolved threads
-		if opts.NeedsReplyOnly && thread.IsResolved {
+	
+	// Determine which thread nodes to process based on pagination
+	threadNodes := pr.ReviewThreads.Nodes
+	if useThreadsAfter {
+		threadNodes = pr.ReviewThreadsAfter.Nodes
+	}
+	
+	for _, thread := range threadNodes {
+		// Apply unresolved-only filter
+		if opts.UnresolvedOnly && thread.IsResolved {
 			continue  // Skip resolved threads when only unresolved threads are requested
 		}
 		
@@ -616,12 +583,13 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 
 	var threadPageInfo PageInfo
 	if opts.IncludeThreads {
-		threadPageInfo = PageInfo{
-			HasNextPage:     pr.ReviewThreads.PageInfo.HasNextPage,
-			HasPreviousPage: pr.ReviewThreads.PageInfo.HasPreviousPage,
-			StartCursor:     pr.ReviewThreads.PageInfo.StartCursor,
-			EndCursor:       pr.ReviewThreads.PageInfo.EndCursor,
-			TotalCount:      pr.ReviewThreads.TotalCount,
+		// Select the appropriate thread source based on pagination
+		if useThreadsAfter {
+			threadPageInfo = pr.ReviewThreadsAfter.PageInfo
+			threadPageInfo.TotalCount = pr.ReviewThreadsAfter.TotalCount
+		} else {
+			threadPageInfo = pr.ReviewThreads.PageInfo
+			threadPageInfo.TotalCount = pr.ReviewThreads.TotalCount
 		}
 	}
 

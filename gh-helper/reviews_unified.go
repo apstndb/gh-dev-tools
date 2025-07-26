@@ -51,9 +51,9 @@ func init() {
 	fetchReviewsCmd.Flags().BoolVar(&includeReviewBodies, "bodies", true, "Include review bodies")
 	fetchReviewsCmd.Flags().IntVar(&threadLimit, "thread-limit", 50, "Maximum threads to fetch")
 	fetchReviewsCmd.Flags().IntVar(&reviewLimit, "review-limit", 20, "Maximum reviews to fetch")
-	fetchReviewsCmd.Flags().Bool("threads-only", false, "Output only threads that need replies (implies --no-bodies --json)")
+	fetchReviewsCmd.Flags().Bool("threads-only", false, "Output only threads (implies --no-bodies --json)")
 	fetchReviewsCmd.Flags().Bool("list-threads", false, "List thread IDs only, one per line (implies --threads-only)")
-	fetchReviewsCmd.Flags().Bool("needs-reply-only", false, "Include only threads that need replies (filters at data level)")
+	fetchReviewsCmd.Flags().Bool("unresolved-only", false, "Include only unresolved threads")
 
 	// Pagination flags
 	fetchReviewsCmd.Flags().StringVar(&reviewAfterCursor, "reviews-after", "", "Reviews pagination: fetch after this cursor")
@@ -84,7 +84,7 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 	// Check for specialized thread modes
 	threadsOnly, _ := cmd.Flags().GetBool("threads-only")
 	listThreads, _ := cmd.Flags().GetBool("list-threads")
-	needsReplyOnly, _ := cmd.Flags().GetBool("needs-reply-only")
+	unresolvedOnly, _ := cmd.Flags().GetBool("unresolved-only")
 	
 	// Get output format using unified resolver
 	// Get exclude-urls flag
@@ -103,7 +103,7 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to set format flag: %w", err)
 		}
 		includeReviewBodies = false
-		needsReplyOnly = true  // Implied for thread-focused modes
+		// No longer implicitly filter to unresolved only
 		if listThreads {
 			threadsOnly = true
 		}
@@ -114,7 +114,7 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 		IncludeReviewBodies: includeReviewBodies,
 		ThreadLimit:         threadLimit,
 		ReviewLimit:         reviewLimit,
-		NeedsReplyOnly:      needsReplyOnly,
+		UnresolvedOnly:      unresolvedOnly,  // Use the clearer name
 		ExcludeURLs:         excludeURLs,
 	}
 
@@ -126,7 +126,7 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 			"bodies": opts.IncludeReviewBodies,
 			"review_limit": opts.ReviewLimit,
 			"thread_limit": opts.ThreadLimit,
-			"needs_reply_only": opts.NeedsReplyOnly,
+			"unresolved_only": opts.UnresolvedOnly,
 		})
 
 	data, err := client.GetUnifiedReviewData(prNumber, opts)
@@ -136,24 +136,19 @@ func fetchReviews(cmd *cobra.Command, args []string) error {
 
 	// Handle specialized modes
 	if listThreads {
-		// Simple list mode: just unresolved thread IDs
+		// Simple list mode: thread IDs based on filter
 		for _, thread := range data.Threads {
-			if !thread.IsResolved {
-				fmt.Println(thread.ID)
-			}
+			// If unresolvedOnly was set, data.Threads already contains only unresolved threads
+			// Otherwise, show all threads
+			fmt.Println(thread.ID)
 		}
 		return nil
 	}
 	
 	if threadsOnly {
-		// Filter to only unresolved threads
-		unresolvedThreads := []ThreadData{}
-		for _, thread := range data.Threads {
-			if !thread.IsResolved {
-				unresolvedThreads = append(unresolvedThreads, thread)
-			}
-		}
-		return EncodeOutputWithCmd(cmd, unresolvedThreads)
+		// Output threads based on filter
+		// If unresolvedOnly was set, data.Threads already contains only unresolved threads
+		return EncodeOutputWithCmd(cmd, data.Threads)
 	}
 	
 	// Use specialized output function to create a consistent structure for both YAML and JSON
@@ -224,6 +219,8 @@ func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodie
 		unresolvedCount := 0
 		unresolvedThreads := []map[string]interface{}{}
 		
+		// Filter for unresolved threads to display in the output
+		// Note: If unresolvedOnly flag was set, data.Threads already contains only unresolved threads
 		for _, thread := range data.Threads {
 			if !thread.IsResolved {
 				unresolvedCount++
@@ -270,10 +267,13 @@ func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodie
 			}
 		}
 		
+		// Calculate total count from page info for accuracy
+		totalCount := data.ThreadPageInfo.TotalCount
+		
 		output["reviewThreads"] = map[string]interface{}{
-			"totalCount":       len(data.Threads),
+			"totalCount":       totalCount,
 			"unresolvedCount":  unresolvedCount,
-			"needingReply":     unresolvedThreads, // Now simply unresolved threads
+			"unresolvedThreads": unresolvedThreads, // Unresolved threads
 		}
 	}
 	
