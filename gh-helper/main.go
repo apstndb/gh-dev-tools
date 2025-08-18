@@ -1477,15 +1477,13 @@ func submitPendingComments(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid PR number: %w", err)
 	}
 	
-	// Query to get PR ID and any pending reviews
+	// Query to get any pending reviews (optimized to fetch only required fields)
 	// Using first: 100 to handle most cases without pagination
 	// For extremely rare cases with >100 pending reviews, pagination would be needed
 	query := `
 query($owner: String!, $repo: String!, $prNumber: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $prNumber) {
-      id
-      title
       reviews(first: 100, states: PENDING) {
         totalCount
         pageInfo {
@@ -1497,14 +1495,8 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
           author {
             login
           }
-          body
-          comments(first: 100) {
+          comments(first: 1) {
             totalCount
-            nodes {
-              id
-              state
-              body
-            }
           }
         }
       }
@@ -1530,8 +1522,6 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 		Data struct {
 			Repository struct {
 				PullRequest struct {
-					ID      string `json:"id"`
-					Title   string `json:"title"`
 					Reviews struct {
 						TotalCount int `json:"totalCount"`
 						PageInfo struct {
@@ -1543,14 +1533,8 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 							Author struct {
 								Login string `json:"login"`
 							} `json:"author"`
-							Body string `json:"body"`
 							Comments struct {
 								TotalCount int `json:"totalCount"`
-								Nodes []struct {
-									ID    string `json:"id"`
-									State string `json:"state"`
-									Body  string `json:"body"`
-								} `json:"nodes"`
 							} `json:"comments"`
 						} `json:"nodes"`
 					} `json:"reviews"`
