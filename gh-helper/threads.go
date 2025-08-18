@@ -319,10 +319,13 @@ query($ids: [ID!]!, $excludeUrls: Boolean!) {
 	return threads, nil
 }
 
-// ReplyToThread adds a reply to a review thread and automatically submits it
-// Uses addPullRequestReviewThreadReply followed by submitPullRequestReview to avoid pending comments
+// ReplyToThread adds a reply to a review thread and intelligently handles review submission
+// The mutation will either:
+// 1. Create a new review and auto-submit it (if no pending review exists)
+// 2. Add to an existing pending review (requires manual submission later)
 func (c *GitHubClient) ReplyToThread(threadID, body string, autoSubmit bool) error {
-	// First, add the reply to the thread (this creates a pending review)
+	// First, add the reply to the thread
+	// This will either create a new review or add to an existing pending review
 	replyMutation := `
 mutation($threadID: ID!, $body: String!) {
   addPullRequestReviewThreadReply(input: {
@@ -332,8 +335,10 @@ mutation($threadID: ID!, $body: String!) {
     comment {
       id
       url
+      state
       pullRequestReview {
         id
+        state
         pullRequest {
           id
         }
@@ -352,15 +357,17 @@ mutation($threadID: ID!, $body: String!) {
 		return fmt.Errorf("failed to reply to thread: %w", err)
 	}
 
-	// Parse the response to get review ID and PR ID for submit
+	// Parse the response to check if the comment is pending
 	var replyResponse struct {
 		Data struct {
 			AddPullRequestReviewThreadReply struct {
 				Comment struct {
 					ID                string `json:"id"`
 					URL               string `json:"url"`
+					State             string `json:"state"` // PENDING or SUBMITTED
 					PullRequestReview struct {
-						ID string `json:"id"`
+						ID    string `json:"id"`
+						State string `json:"state"` // PENDING, COMMENTED, etc.
 						PullRequest struct {
 							ID string `json:"id"`
 						} `json:"pullRequest"`
@@ -374,14 +381,16 @@ mutation($threadID: ID!, $body: String!) {
 		return fmt.Errorf("failed to parse reply response: %w", err)
 	}
 
-	// Auto-submit the review if enabled (default behavior)
-	if autoSubmit {
-		reviewID := replyResponse.Data.AddPullRequestReviewThreadReply.Comment.PullRequestReview.ID
-		prID := replyResponse.Data.AddPullRequestReviewThreadReply.Comment.PullRequestReview.PullRequest.ID
-		
-		if reviewID != "" {
-			// Submit the pending review as COMMENT (no approval/rejection, just publish the comment)
-			submitMutation := `
+	comment := replyResponse.Data.AddPullRequestReviewThreadReply.Comment
+	review := comment.PullRequestReview
+	
+	// Only attempt to submit if:
+	// 1. autoSubmit is enabled (default true)
+	// 2. The comment is PENDING (meaning it's part of a pending review)
+	// 3. We have a valid review ID
+	if autoSubmit && comment.State == "PENDING" && review.ID != "" {
+		// The comment is pending, so we need to submit the review
+		submitMutation := `
 mutation($reviewID: ID!, $event: PullRequestReviewEvent!) {
   submitPullRequestReview(input: {
     pullRequestReviewId: $reviewID
@@ -394,14 +403,17 @@ mutation($reviewID: ID!, $event: PullRequestReviewEvent!) {
   }
 }`
 
-			submitVars := map[string]interface{}{
-				"reviewID": reviewID,
-				"event":    "COMMENT",
-			}
+		submitVars := map[string]interface{}{
+			"reviewID": review.ID,
+			"event":    "COMMENT",
+		}
 
-			_, err := c.RunGraphQLQueryWithVariables(submitMutation, submitVars)
-			if err != nil {
-				// If we can't submit the review, try with PR ID instead
+		_, submitErr := c.RunGraphQLQueryWithVariables(submitMutation, submitVars)
+		if submitErr != nil {
+			// If we can't submit by review ID (e.g., it's already submitted), 
+			// try submitting any pending review on the PR
+			prID := review.PullRequest.ID
+			if prID != "" {
 				submitWithPRMutation := `
 mutation($prID: ID!, $event: PullRequestReviewEvent!) {
   submitPullRequestReview(input: {
@@ -421,7 +433,14 @@ mutation($prID: ID!, $event: PullRequestReviewEvent!) {
 				
 				_, err2 := c.RunGraphQLQueryWithVariables(submitWithPRMutation, submitWithPRVars)
 				if err2 != nil {
-					return fmt.Errorf("failed to auto-submit review (tried both review ID and PR ID): review error: %w, PR error: %w", err, err2)
+					// Both submission attempts failed
+					// This might be okay if the review was already submitted
+					// Check if it's actually an error or just already submitted
+					if comment.State == "PENDING" {
+						// Still pending after submission attempts - this is a real error
+						return fmt.Errorf("comment remains pending after submission attempts: review error: %w, PR error: %w", submitErr, err2)
+					}
+					// Comment is not pending, so submission errors can be ignored
 				}
 			}
 		}

@@ -1483,13 +1483,22 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $prNumber) {
       id
-      reviews(last: 10, states: PENDING) {
+      title
+      reviews(last: 50, states: PENDING) {
         nodes {
           id
           author {
             login
           }
-          bodyText
+          body
+          comments(first: 100) {
+            totalCount
+            nodes {
+              id
+              state
+              body
+            }
+          }
         }
       }
     }
@@ -1515,13 +1524,22 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 			Repository struct {
 				PullRequest struct {
 					ID      string `json:"id"`
+					Title   string `json:"title"`
 					Reviews struct {
 						Nodes []struct {
 							ID     string `json:"id"`
 							Author struct {
 								Login string `json:"login"`
 							} `json:"author"`
-							BodyText string `json:"bodyText"`
+							Body string `json:"body"`
+							Comments struct {
+								TotalCount int `json:"totalCount"`
+								Nodes []struct {
+									ID    string `json:"id"`
+									State string `json:"state"`
+									Body  string `json:"body"`
+								} `json:"nodes"`
+							} `json:"comments"`
 						} `json:"nodes"`
 					} `json:"reviews"`
 				} `json:"pullRequest"`
@@ -1556,7 +1574,21 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 		// Only submit reviews owned by the current user
 		if review.Author.Login != currentUser {
 			InfoMsg("Skipping pending review by %s (not owned by current user)", review.Author.Login).Print()
+			results = append(results, map[string]interface{}{
+				"reviewId": review.ID,
+				"author":   review.Author.Login,
+				"status":   "skipped",
+				"reason":   "not owned by current user",
+			})
 			continue
+		}
+		
+		// Count pending comments in this review
+		pendingCommentCount := 0
+		for _, comment := range review.Comments.Nodes {
+			if comment.State == "PENDING" {
+				pendingCommentCount++
+			}
 		}
 		
 		// Submit the review
@@ -1582,9 +1614,10 @@ mutation($reviewID: ID!) {
 		if err != nil {
 			WarningMsg("Failed to submit review %s: %v", review.ID, err).Print()
 			results = append(results, map[string]interface{}{
-				"reviewId": review.ID,
-				"status":   "failed",
-				"error":    err.Error(),
+				"reviewId":             review.ID,
+				"status":               "failed",
+				"error":                err.Error(),
+				"pendingCommentCount":  pendingCommentCount,
 			})
 			continue
 		}
@@ -1610,13 +1643,14 @@ mutation($reviewID: ID!) {
 		submittedCount++
 		
 		results = append(results, map[string]interface{}{
-			"reviewId":    submittedReview.ID,
-			"status":      "submitted",
-			"state":       submittedReview.State,
-			"submittedAt": submittedReview.SubmittedAt,
+			"reviewId":            submittedReview.ID,
+			"status":              "submitted",
+			"state":               submittedReview.State,
+			"submittedAt":         submittedReview.SubmittedAt,
+			"commentsPublished":   review.Comments.TotalCount,
 		})
 		
-		SuccessMsg("Submitted pending review %s", review.ID).Print()
+		SuccessMsg("Submitted pending review %s (%d comments published)", review.ID, review.Comments.TotalCount).Print()
 	}
 	
 	// Summary output
@@ -1797,7 +1831,7 @@ func hasCustomMessages(inputs []threadInput) bool {
 
 // Helper function to execute reply mutation
 func executeReplyMutation(client *GitHubClient, threadID, body string, result *replyResult) error {
-	// Use the ReplyToThread method which handles auto-submit
+	// Use the ReplyToThread method which handles intelligent auto-submit
 	// Auto-submit is enabled by default (inverted from noSubmit flag)
 	autoSubmit := !noSubmit
 	
@@ -1810,9 +1844,10 @@ func executeReplyMutation(client *GitHubClient, threadID, body string, result *r
 	result.Status = "success"
 	result.Message = body
 	
-	// Indicate whether the reply was auto-submitted or left pending
+	// Note: With the improved implementation, comments are only pending if there was
+	// already a pending review. The ReplyToThread method handles this intelligently.
 	if !autoSubmit {
-		InfoMsg("Comment created as pending (use --no-submit=false to auto-submit)").Print()
+		InfoMsg("Auto-submit disabled. Comment may be pending if added to an existing pending review.").Print()
 	}
 	
 	return nil
