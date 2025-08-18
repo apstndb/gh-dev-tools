@@ -323,7 +323,8 @@ query($ids: [ID!]!, $excludeUrls: Boolean!) {
 // The mutation will either:
 // 1. Create a new review and auto-submit it (if no pending review exists)
 // 2. Add to an existing pending review (requires manual submission later)
-func (c *GitHubClient) ReplyToThread(threadID, body string, autoSubmit bool) error {
+// Returns the comment ID and URL of the created comment
+func (c *GitHubClient) ReplyToThread(threadID, body string, autoSubmit bool) (string, string, error) {
 	// First, add the reply to the thread
 	// This will either create a new review or add to an existing pending review
 	replyMutation := `
@@ -354,7 +355,7 @@ mutation($threadID: ID!, $body: String!) {
 
 	result, err := c.RunGraphQLQueryWithVariables(replyMutation, variables)
 	if err != nil {
-		return fmt.Errorf("failed to reply to thread: %w", err)
+		return "", "", fmt.Errorf("failed to reply to thread: %w", err)
 	}
 
 	// Parse the response to check if the comment is pending
@@ -378,11 +379,15 @@ mutation($threadID: ID!, $body: String!) {
 	}
 
 	if err := Unmarshal(result, &replyResponse); err != nil {
-		return fmt.Errorf("failed to parse reply response: %w", err)
+		return "", "", fmt.Errorf("failed to parse reply response: %w", err)
 	}
 
 	comment := replyResponse.Data.AddPullRequestReviewThreadReply.Comment
 	review := comment.PullRequestReview
+	
+	// Store comment ID and URL to return
+	commentID := comment.ID
+	commentURL := comment.URL
 	
 	// Only attempt to submit if:
 	// 1. autoSubmit is enabled (default true)
@@ -438,7 +443,7 @@ mutation($prID: ID!, $event: PullRequestReviewEvent!) {
 					// Check if it's actually an error or just already submitted
 					if comment.State == "PENDING" {
 						// Still pending after submission attempts - this is a real error
-						return fmt.Errorf("comment remains pending after submission attempts: review error: %w, PR error: %w", submitErr, err2)
+						return "", "", fmt.Errorf("comment remains pending after submission attempts: review error: %w, PR error: %w", submitErr, err2)
 					}
 					// Comment is not pending, so submission errors can be ignored
 				}
@@ -446,7 +451,7 @@ mutation($prID: ID!, $event: PullRequestReviewEvent!) {
 		}
 	}
 
-	return nil
+	return commentID, commentURL, nil
 }
 
 // ResolveThread resolves a review thread using GraphQL mutation

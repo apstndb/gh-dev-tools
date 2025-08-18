@@ -1478,13 +1478,20 @@ func submitPendingComments(cmd *cobra.Command, args []string) error {
 	}
 	
 	// Query to get PR ID and any pending reviews
+	// Using first: 100 to handle most cases without pagination
+	// For extremely rare cases with >100 pending reviews, pagination would be needed
 	query := `
 query($owner: String!, $repo: String!, $prNumber: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $prNumber) {
       id
       title
-      reviews(last: 50, states: PENDING) {
+      reviews(first: 100, states: PENDING) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
         nodes {
           id
           author {
@@ -1526,6 +1533,11 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 					ID      string `json:"id"`
 					Title   string `json:"title"`
 					Reviews struct {
+						TotalCount int `json:"totalCount"`
+						PageInfo struct {
+							HasNextPage bool   `json:"hasNextPage"`
+							EndCursor   string `json:"endCursor"`
+						} `json:"pageInfo"`
 						Nodes []struct {
 							ID     string `json:"id"`
 							Author struct {
@@ -1556,7 +1568,14 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 	
 	// prID := response.Data.Repository.PullRequest.ID // Not needed for current implementation
 	currentUser := response.Data.Viewer.Login
-	pendingReviews := response.Data.Repository.PullRequest.Reviews.Nodes
+	reviews := response.Data.Repository.PullRequest.Reviews
+	pendingReviews := reviews.Nodes
+	
+	// Warn if there are more pending reviews than we fetched
+	if reviews.PageInfo.HasNextPage {
+		WarningMsg("More than 100 pending reviews found (total: %d). Only processing first 100.", reviews.TotalCount).Print()
+		WarningMsg("Consider running this command multiple times or implementing full pagination.").Print()
+	}
 	
 	if len(pendingReviews) == 0 {
 		InfoMsg("No pending reviews found for PR #%s", prNumber).Print()
@@ -1835,7 +1854,7 @@ func executeReplyMutation(client *GitHubClient, threadID, body string, result *r
 	// Auto-submit is enabled by default (inverted from noSubmit flag)
 	autoSubmit := !noSubmit
 	
-	err := client.ReplyToThread(threadID, body, autoSubmit)
+	commentID, commentURL, err := client.ReplyToThread(threadID, body, autoSubmit)
 	if err != nil {
 		return err
 	}
@@ -1843,6 +1862,8 @@ func executeReplyMutation(client *GitHubClient, threadID, body string, result *r
 	// Set basic success info
 	result.Status = "success"
 	result.Message = body
+	result.CommentID = commentID
+	result.URL = commentURL
 	
 	// Note: With the improved implementation, comments are only pending if there was
 	// already a pending review. The ReplyToThread method handles this intelligently.
