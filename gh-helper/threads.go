@@ -438,15 +438,13 @@ mutation($prID: ID!, $event: PullRequestReviewEvent!) {
 				
 				_, err2 := c.RunGraphQLQueryWithVariables(submitWithPRMutation, submitWithPRVars)
 				if err2 != nil {
-					// Both submission attempts failed
-					// This might be okay if the review was already submitted
-					// Check if it's actually an error or just already submitted
-					if comment.State == "PENDING" {
-						// Still pending after submission attempts - this is a real error
-						return "", "", fmt.Errorf("comment remains pending after submission attempts: review error: %w, PR error: %w", submitErr, err2)
-					}
-					// Comment is not pending, so submission errors can be ignored
+					// Both submission attempts failed. It's safer to return an error
+					// and let the user know, rather than potentially swallowing a real issue.
+					return "", "", fmt.Errorf("failed to submit review, and fallback submission also failed: original error: %w, fallback error: %w", submitErr, err2)
 				}
+			} else {
+				// No prID available for fallback, so we must return the original error.
+				return "", "", fmt.Errorf("failed to submit review and could not attempt fallback submission: %w", submitErr)
 			}
 		}
 	}

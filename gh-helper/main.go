@@ -1602,13 +1602,9 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 			continue
 		}
 		
-		// Count pending comments in this review
-		pendingCommentCount := 0
-		for _, comment := range review.Comments.Nodes {
-			if comment.State == "PENDING" {
-				pendingCommentCount++
-			}
-		}
+		// Since the review state is PENDING, all its comments are also pending.
+		// Using TotalCount is more accurate as it's not limited by pagination (first: 100).
+		pendingCommentCount := review.Comments.TotalCount
 		
 		// Submit the review
 		submitMutation := `
