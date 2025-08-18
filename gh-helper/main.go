@@ -214,6 +214,30 @@ Examples:
 	resolveThread,
 )
 
+var submitThreadsCmd = NewOperationalCommand(
+	"submit [pr-number]",
+	"Submit pending review comments",
+	`Submit all pending review comments for a pull request.
+
+This command submits any pending review comments that haven't been published yet.
+Pending comments are created when replying to threads with --no-submit flag or
+when using older tools that don't auto-submit reviews.
+
+` + prNumberArgsHelp + `
+
+Examples:
+  # Submit all pending comments for current branch's PR
+  gh-helper threads submit
+  
+  # Submit pending comments for specific PR
+  gh-helper threads submit 123
+  
+  # Check for pending comments first, then submit
+  gh-helper reviews fetch 123 --list-threads
+  gh-helper threads submit 123`,
+	submitPendingComments,
+)
+
 // replyWithCommitCmd removed - use 'threads reply' with --message for commit references
 
 var (
@@ -230,6 +254,7 @@ var (
 	async          bool
 	detailed       bool
 	requestSummary bool
+	noSubmit       bool
 )
 
 // Common help text for PR number arguments
@@ -269,6 +294,7 @@ func init() {
 	replyThreadsCmd.Flags().StringVar(&mentionUser, "mention", "", "Username to mention (without @)")
 	replyThreadsCmd.Flags().StringVar(&commitHash, "commit-hash", "", "Commit hash to reference in reply")
 	replyThreadsCmd.Flags().BoolVar(&autoResolve, "resolve", false, "Automatically resolve thread after replying")
+	replyThreadsCmd.Flags().BoolVar(&noSubmit, "no-submit", false, "Don't auto-submit review (creates pending comment)")
 	replyThreadsCmd.Flags().Bool("parallel", true, "Execute mutations concurrently")
 	replyThreadsCmd.Flags().Int("max-concurrent", 5, "Maximum concurrent requests")
 
@@ -284,7 +310,7 @@ func init() {
 
 	// Add subcommands
 	reviewsCmd.AddCommand(fetchReviewsCmd, waitReviewsCmd)
-	threadsCmd.AddCommand(showThreadCmd, replyThreadsCmd, resolveThreadCmd)
+	threadsCmd.AddCommand(showThreadCmd, replyThreadsCmd, resolveThreadCmd, submitThreadsCmd)
 	rootCmd.AddCommand(reviewsCmd, threadsCmd, labelsCmd, issuesCmd, releasesCmd, nodeIDCmd)
 }
 
@@ -1435,6 +1461,181 @@ func resolveThread(cmd *cobra.Command, args []string) error {
 	return EncodeOutputWithCmd(cmd, results)
 }
 
+func submitPendingComments(cmd *cobra.Command, args []string) error {
+	// Create GitHub client
+	client := NewGitHubClient(owner, repo)
+	
+	// Resolve PR number
+	prNumber, err := resolvePRNumberFromArgs(args, client)
+	if err != nil {
+		return err
+	}
+	
+	// Get PR ID for the submit mutation
+	prNumberInt, err := strconv.Atoi(prNumber)
+	if err != nil {
+		return fmt.Errorf("invalid PR number: %w", err)
+	}
+	
+	// Query to get PR ID and any pending reviews
+	query := `
+query($owner: String!, $repo: String!, $prNumber: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $prNumber) {
+      id
+      reviews(last: 10, states: PENDING) {
+        nodes {
+          id
+          author {
+            login
+          }
+          bodyText
+        }
+      }
+    }
+  }
+  viewer {
+    login
+  }
+}`
+
+	variables := map[string]interface{}{
+		"owner":    owner,
+		"repo":     repo,
+		"prNumber": prNumberInt,
+	}
+	
+	result, err := client.RunGraphQLQueryWithVariables(query, variables)
+	if err != nil {
+		return fmt.Errorf("failed to fetch PR data: %w", err)
+	}
+	
+	var response struct {
+		Data struct {
+			Repository struct {
+				PullRequest struct {
+					ID      string `json:"id"`
+					Reviews struct {
+						Nodes []struct {
+							ID     string `json:"id"`
+							Author struct {
+								Login string `json:"login"`
+							} `json:"author"`
+							BodyText string `json:"bodyText"`
+						} `json:"nodes"`
+					} `json:"reviews"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+			Viewer struct {
+				Login string `json:"login"`
+			} `json:"viewer"`
+		} `json:"data"`
+	}
+	
+	if err := Unmarshal(result, &response); err != nil {
+		return fmt.Errorf("failed to parse response: %w", err)
+	}
+	
+	// prID := response.Data.Repository.PullRequest.ID // Not needed for current implementation
+	currentUser := response.Data.Viewer.Login
+	pendingReviews := response.Data.Repository.PullRequest.Reviews.Nodes
+	
+	if len(pendingReviews) == 0 {
+		InfoMsg("No pending reviews found for PR #%s", prNumber).Print()
+		return EncodeOutputWithCmd(cmd, map[string]interface{}{
+			"message": "No pending reviews to submit",
+			"prNumber": prNumber,
+		})
+	}
+	
+	// Submit each pending review owned by the current user
+	submittedCount := 0
+	results := []map[string]interface{}{}
+	
+	for _, review := range pendingReviews {
+		// Only submit reviews owned by the current user
+		if review.Author.Login != currentUser {
+			InfoMsg("Skipping pending review by %s (not owned by current user)", review.Author.Login).Print()
+			continue
+		}
+		
+		// Submit the review
+		submitMutation := `
+mutation($reviewID: ID!) {
+  submitPullRequestReview(input: {
+    pullRequestReviewId: $reviewID
+    event: COMMENT
+  }) {
+    pullRequestReview {
+      id
+      state
+      submittedAt
+    }
+  }
+}`
+		
+		submitVars := map[string]interface{}{
+			"reviewID": review.ID,
+		}
+		
+		submitResult, err := client.RunGraphQLQueryWithVariables(submitMutation, submitVars)
+		if err != nil {
+			WarningMsg("Failed to submit review %s: %v", review.ID, err).Print()
+			results = append(results, map[string]interface{}{
+				"reviewId": review.ID,
+				"status":   "failed",
+				"error":    err.Error(),
+			})
+			continue
+		}
+		
+		var submitResponse struct {
+			Data struct {
+				SubmitPullRequestReview struct {
+					PullRequestReview struct {
+						ID          string `json:"id"`
+						State       string `json:"state"`
+						SubmittedAt string `json:"submittedAt"`
+					} `json:"pullRequestReview"`
+				} `json:"submitPullRequestReview"`
+			} `json:"data"`
+		}
+		
+		if err := Unmarshal(submitResult, &submitResponse); err != nil {
+			WarningMsg("Failed to parse submit response: %v", err).Print()
+			continue
+		}
+		
+		submittedReview := submitResponse.Data.SubmitPullRequestReview.PullRequestReview
+		submittedCount++
+		
+		results = append(results, map[string]interface{}{
+			"reviewId":    submittedReview.ID,
+			"status":      "submitted",
+			"state":       submittedReview.State,
+			"submittedAt": submittedReview.SubmittedAt,
+		})
+		
+		SuccessMsg("Submitted pending review %s", review.ID).Print()
+	}
+	
+	// Summary output
+	output := map[string]interface{}{
+		"prNumber":           prNumber,
+		"pendingReviewsFound": len(pendingReviews),
+		"reviewsSubmitted":   submittedCount,
+		"results":            results,
+	}
+	
+	if submittedCount > 0 {
+		output["message"] = fmt.Sprintf("Successfully submitted %d pending review(s)", submittedCount)
+	} else {
+		output["message"] = "No reviews were submitted (none owned by current user)"
+	}
+	
+	return EncodeOutputWithCmd(cmd, output)
+}
+
 // threadInput represents a thread ID with optional custom message
 type threadInput struct {
 	ID            string
@@ -1596,53 +1797,23 @@ func hasCustomMessages(inputs []threadInput) bool {
 
 // Helper function to execute reply mutation
 func executeReplyMutation(client *GitHubClient, threadID, body string, result *replyResult) error {
-	mutation := `
-mutation($threadID: ID!, $body: String!) {
-  addPullRequestReviewThreadReply(input: {
-    pullRequestReviewThreadId: $threadID
-    body: $body
-  }) {
-    comment {
-      id
-      url
-      body
-    }
-  }
-}`
-
-	variables := map[string]interface{}{
-		"threadID": threadID,
-		"body":     body,
-	}
-
-	responseData, err := client.RunGraphQLQueryWithVariables(mutation, variables)
+	// Use the ReplyToThread method which handles auto-submit
+	// Auto-submit is enabled by default (inverted from noSubmit flag)
+	autoSubmit := !noSubmit
+	
+	err := client.ReplyToThread(threadID, body, autoSubmit)
 	if err != nil {
 		return err
 	}
 
-	var response struct {
-		Data struct {
-			AddPullRequestReviewThreadReply struct {
-				Comment struct {
-					ID  string `json:"id"`
-					URL string `json:"url"`
-					Body string `json:"body"`
-				} `json:"comment"`
-			} `json:"addPullRequestReviewThreadReply"`
-		} `json:"data"`
+	// Set basic success info
+	result.Status = "success"
+	result.Message = body
+	
+	// Indicate whether the reply was auto-submitted or left pending
+	if !autoSubmit {
+		InfoMsg("Comment created as pending (use --no-submit=false to auto-submit)").Print()
 	}
-
-	if err := Unmarshal(responseData, &response); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	comment := response.Data.AddPullRequestReviewThreadReply.Comment
-	if comment.ID == "" {
-		return fmt.Errorf("reply posting failed: empty response")
-	}
-
-	result.CommentID = comment.ID
-	result.URL = comment.URL
 	
 	return nil
 }

@@ -70,6 +70,7 @@ type ThreadCommentFields struct {
 	} `json:"author"`
 	Body      string `json:"body"`
 	CreatedAt string `json:"createdAt"`
+	State     string `json:"state"`
 }
 
 // ThreadFields corresponds to fragment ThreadFields on PullRequestReviewThread

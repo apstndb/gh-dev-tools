@@ -77,6 +77,7 @@ type ThreadComment struct {
 	Author    string `json:"author"`
 	Body      string `json:"body"`
 	CreatedAt string `json:"createdAt"`
+	State     string `json:"state,omitempty"` // PENDING or SUBMITTED
 }
 
 // UnifiedReviewOptions controls what data to fetch

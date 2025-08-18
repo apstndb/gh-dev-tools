@@ -43,7 +43,9 @@ make build              # Build gh-helper tool
 # New enhanced review features
 ./bin/gh-helper reviews wait <PR> --async --detailed  # Get comprehensive PR status
 ./bin/gh-helper reviews wait <PR> --request-summary   # Request and wait for Gemini summary
-./bin/gh-helper threads reply <ID1> <ID2> <ID3> --resolve  # Bulk reply to threads
+./bin/gh-helper threads reply <ID1> <ID2> <ID3> --resolve  # Bulk reply to threads (auto-submits)
+./bin/gh-helper threads reply <ID> --no-submit        # Create pending comment (rare)
+./bin/gh-helper threads submit <PR>                   # Submit any pending comments
 
 # Schema introspection via github-schema-go tool for exploring GitHub's GraphQL API (see below)
 # github-schema-go provides type-safe access to GitHub's GraphQL schema for discovering available
@@ -112,12 +114,16 @@ git push origin HEAD  # Explicit push to current branch
 ### Review Thread Management
 - **Always resolve review threads** after addressing feedback
 - **CRITICAL:** Push commits BEFORE replying to threads - GitHub needs the commit to exist for proper linking
+- **Auto-submit by default**: Review comments are now automatically submitted (no longer pending)
 - **For threads requiring code changes**:
   1. Make the necessary changes and commit
   2. **Push the commit to GitHub first**: `git push origin HEAD`
   3. Reply with commit hash and resolve: `./bin/gh-helper threads reply <THREAD_ID> --commit-hash <HASH> --message "Fixed as suggested" --resolve`
 - **For threads not requiring changes**:
   1. Reply with explanation and resolve: `./bin/gh-helper threads reply <THREAD_ID> --message "Explanation here" --resolve`
+- **To create pending comments** (rare): Use `--no-submit` flag: `./bin/gh-helper threads reply <THREAD_ID> --message "Draft response" --no-submit`
+- **Submit pending comments**: `./bin/gh-helper threads submit <PR>` to publish all pending comments
+- **Detect pending comments**: `./bin/gh-helper reviews fetch <PR>` will warn about any pending comments
 - **Batch resolve multiple threads**: `./bin/gh-helper threads resolve <THREAD_ID1> <THREAD_ID2> <THREAD_ID3>`
 - **Bulk reply with custom messages**: `./bin/gh-helper threads reply THREAD1:"Fixed typo" THREAD2:"Refactored" --commit-hash <HASH> --resolve`
 

@@ -24,6 +24,7 @@ type CommentInfo struct {
 	Body      string `json:"body"`
 	Author    string `json:"author"`
 	CreatedAt string `json:"createdAt"`
+	State     string `json:"state,omitempty"` // PENDING or SUBMITTED
 	DiffHunk  string `json:"diffHunk,omitempty"`
 }
 
@@ -118,6 +119,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $limit: Int!, $excludeUr
 										Login string `json:"login"`
 									} `json:"author"`
 									CreatedAt string `json:"createdAt"`
+									State     string `json:"state"`
 									DiffHunk  string `json:"diffHunk"`
 								} `json:"nodes"`
 							} `json:"comments"`
@@ -152,6 +154,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $limit: Int!, $excludeUr
 				Body:      comment.Body,
 				Author:    comment.Author.Login,
 				CreatedAt: comment.CreatedAt,
+				State:     comment.State,
 				DiffHunk:  comment.DiffHunk,
 			})
 		}
@@ -264,6 +267,7 @@ query($ids: [ID!]!, $excludeUrls: Boolean!) {
 							Login string `json:"login"`
 						} `json:"author"`
 						CreatedAt string `json:"createdAt"`
+						State     string `json:"state"`
 						DiffHunk  string `json:"diffHunk"`
 					} `json:"nodes"`
 				} `json:"comments"`
@@ -290,6 +294,7 @@ query($ids: [ID!]!, $excludeUrls: Boolean!) {
 				Body:      comment.Body,
 				Author:    comment.Author.Login,
 				CreatedAt: comment.CreatedAt,
+				State:     comment.State,
 				DiffHunk:  comment.DiffHunk,
 			})
 		}
@@ -314,10 +319,11 @@ query($ids: [ID!]!, $excludeUrls: Boolean!) {
 	return threads, nil
 }
 
-// ReplyToThread adds a reply to a review thread using GraphQL mutation
-// Uses addPullRequestReviewThreadReply to avoid creating pending reviews
-func (c *GitHubClient) ReplyToThread(threadID, body string) error {
-	mutation := `
+// ReplyToThread adds a reply to a review thread and automatically submits it
+// Uses addPullRequestReviewThreadReply followed by submitPullRequestReview to avoid pending comments
+func (c *GitHubClient) ReplyToThread(threadID, body string, autoSubmit bool) error {
+	// First, add the reply to the thread (this creates a pending review)
+	replyMutation := `
 mutation($threadID: ID!, $body: String!) {
   addPullRequestReviewThreadReply(input: {
     pullRequestReviewThreadId: $threadID
@@ -326,6 +332,12 @@ mutation($threadID: ID!, $body: String!) {
     comment {
       id
       url
+      pullRequestReview {
+        id
+        pullRequest {
+          id
+        }
+      }
     }
   }
 }`
@@ -335,9 +347,84 @@ mutation($threadID: ID!, $body: String!) {
 		"body":     body,
 	}
 
-	_, err := c.RunGraphQLQueryWithVariables(mutation, variables)
+	result, err := c.RunGraphQLQueryWithVariables(replyMutation, variables)
 	if err != nil {
 		return fmt.Errorf("failed to reply to thread: %w", err)
+	}
+
+	// Parse the response to get review ID and PR ID for submit
+	var replyResponse struct {
+		Data struct {
+			AddPullRequestReviewThreadReply struct {
+				Comment struct {
+					ID                string `json:"id"`
+					URL               string `json:"url"`
+					PullRequestReview struct {
+						ID string `json:"id"`
+						PullRequest struct {
+							ID string `json:"id"`
+						} `json:"pullRequest"`
+					} `json:"pullRequestReview"`
+				} `json:"comment"`
+			} `json:"addPullRequestReviewThreadReply"`
+		} `json:"data"`
+	}
+
+	if err := Unmarshal(result, &replyResponse); err != nil {
+		return fmt.Errorf("failed to parse reply response: %w", err)
+	}
+
+	// Auto-submit the review if enabled (default behavior)
+	if autoSubmit {
+		reviewID := replyResponse.Data.AddPullRequestReviewThreadReply.Comment.PullRequestReview.ID
+		prID := replyResponse.Data.AddPullRequestReviewThreadReply.Comment.PullRequestReview.PullRequest.ID
+		
+		if reviewID != "" {
+			// Submit the pending review as COMMENT (no approval/rejection, just publish the comment)
+			submitMutation := `
+mutation($reviewID: ID!, $event: PullRequestReviewEvent!) {
+  submitPullRequestReview(input: {
+    pullRequestReviewId: $reviewID
+    event: $event
+  }) {
+    pullRequestReview {
+      id
+      state
+    }
+  }
+}`
+
+			submitVars := map[string]interface{}{
+				"reviewID": reviewID,
+				"event":    "COMMENT",
+			}
+
+			_, err := c.RunGraphQLQueryWithVariables(submitMutation, submitVars)
+			if err != nil {
+				// If we can't submit the review, try with PR ID instead
+				submitWithPRMutation := `
+mutation($prID: ID!, $event: PullRequestReviewEvent!) {
+  submitPullRequestReview(input: {
+    pullRequestId: $prID
+    event: $event
+  }) {
+    pullRequestReview {
+      id
+      state
+    }
+  }
+}`
+				submitWithPRVars := map[string]interface{}{
+					"prID":  prID,
+					"event": "COMMENT",
+				}
+				
+				_, err2 := c.RunGraphQLQueryWithVariables(submitWithPRMutation, submitWithPRVars)
+				if err2 != nil {
+					return fmt.Errorf("failed to auto-submit review (tried both review ID and PR ID): review error: %w, PR error: %w", err, err2)
+				}
+			}
+		}
 	}
 
 	return nil
