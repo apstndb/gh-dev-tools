@@ -73,6 +73,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $limit: Int!, $excludeUr
                 login
               }
               createdAt
+              state
               diffHunk
             }
           }
@@ -229,6 +230,7 @@ query($ids: [ID!]!, $excludeUrls: Boolean!) {
             login
           }
           createdAt
+          state
           diffHunk
         }
       }
