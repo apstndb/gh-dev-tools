@@ -295,7 +295,7 @@ func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodie
 		// Add pending comments warning if any are found
 		if pendingCommentsCount > 0 {
 			threadsOutput["pendingCommentsCount"] = pendingCommentsCount
-			threadsOutput["pendingWarning"] = fmt.Sprintf("⚠️ Found %d pending comment(s). Comments will be visible after review submission.", pendingCommentsCount)
+			threadsOutput["pendingWarning"] = fmt.Sprintf("⚠️ Found %d pending comment(s). Use 'threads submit' to publish them.", pendingCommentsCount)
 			
 			// Print warning to stderr so it's visible even with JSON/YAML output
 			WarningMsg("Found %d pending comment(s) in review threads. Use 'threads submit' to publish them.", pendingCommentsCount).Print()

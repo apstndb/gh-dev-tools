@@ -1569,6 +1569,34 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 		})
 	}
 	
+	// Define the mutation outside the loop for better performance
+	submitMutation := `
+mutation($reviewID: ID!) {
+  submitPullRequestReview(input: {
+    pullRequestReviewId: $reviewID
+    event: COMMENT
+  }) {
+    pullRequestReview {
+      id
+      state
+      submittedAt
+    }
+  }
+}`
+
+	// Define the response struct outside the loop for better performance
+	type submitResponseType struct {
+		Data struct {
+			SubmitPullRequestReview struct {
+				PullRequestReview struct {
+					ID          string `json:"id"`
+					State       string `json:"state"`
+					SubmittedAt string `json:"submittedAt"`
+				} `json:"pullRequestReview"`
+			} `json:"submitPullRequestReview"`
+		} `json:"data"`
+	}
+
 	// Submit each pending review owned by the current user
 	submittedCount := 0
 	results := []map[string]interface{}{}
@@ -1591,20 +1619,6 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 		pendingCommentCount := review.Comments.TotalCount
 		
 		// Submit the review
-		submitMutation := `
-mutation($reviewID: ID!) {
-  submitPullRequestReview(input: {
-    pullRequestReviewId: $reviewID
-    event: COMMENT
-  }) {
-    pullRequestReview {
-      id
-      state
-      submittedAt
-    }
-  }
-}`
-		
 		submitVars := map[string]interface{}{
 			"reviewID": review.ID,
 		}
@@ -1621,17 +1635,7 @@ mutation($reviewID: ID!) {
 			continue
 		}
 		
-		var submitResponse struct {
-			Data struct {
-				SubmitPullRequestReview struct {
-					PullRequestReview struct {
-						ID          string `json:"id"`
-						State       string `json:"state"`
-						SubmittedAt string `json:"submittedAt"`
-					} `json:"pullRequestReview"`
-				} `json:"submitPullRequestReview"`
-			} `json:"data"`
-		}
+		var submitResponse submitResponseType
 		
 		if err := Unmarshal(submitResult, &submitResponse); err != nil {
 			WarningMsg("Failed to parse submit response: %v", err).Print()
