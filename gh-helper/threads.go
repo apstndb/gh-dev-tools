@@ -415,37 +415,39 @@ mutation($reviewID: ID!, $event: PullRequestReviewEvent!) {
 
 		_, submitErr := c.RunGraphQLQueryWithVariables(submitMutation, submitVars)
 		if submitErr != nil {
-			// If we can't submit by review ID (e.g., it's already submitted), 
-			// try submitting any pending review on the PR
-			prID := review.PullRequest.ID
-			if prID != "" {
-				submitWithPRMutation := `
-mutation($prID: ID!, $event: PullRequestReviewEvent!) {
-  submitPullRequestReview(input: {
-    pullRequestId: $prID
-    event: $event
-  }) {
-    pullRequestReview {
-      id
-      state
-    }
-  }
-}`
-				submitWithPRVars := map[string]interface{}{
-					"prID":  prID,
-					"event": "COMMENT",
-				}
-				
-				_, err2 := c.RunGraphQLQueryWithVariables(submitWithPRMutation, submitWithPRVars)
-				if err2 != nil {
-					// Both submission attempts failed. It's safer to return an error
-					// and let the user know, rather than potentially swallowing a real issue.
-					return "", "", fmt.Errorf("failed to submit review, and fallback submission also failed: original error: %w, fallback error: %w", submitErr, err2)
-				}
-			} else {
-				// No prID available for fallback, so we must return the original error.
-				return "", "", fmt.Errorf("failed to submit review and could not attempt fallback submission: %w", submitErr)
+			// The submission with a specific review ID failed. This can happen in a race condition
+			// if a concurrent reply already submitted the review. To handle this gracefully,
+			// we re-fetch the comment's state to see if it's now SUBMITTED.
+			checkStateQuery := `query($commentID: ID!) { node(id: $commentID) { ... on PullRequestReviewComment { state } } }`
+			checkStateVars := map[string]interface{}{"commentID": commentID}
+			
+			stateResult, stateErr := c.RunGraphQLQueryWithVariables(checkStateQuery, checkStateVars)
+			if stateErr != nil {
+				// We failed to submit and also failed to check the current state.
+				// It's safest to report both errors to the user.
+				return "", "", fmt.Errorf("failed to submit review, and state re-check also failed: original error: %w, check error: %w", submitErr, stateErr)
 			}
+			
+			var stateResponse struct {
+				Data struct {
+					Node struct {
+						State string `json:"state"`
+					} `json:"node"`
+				} `json:"data"`
+			}
+			if err := Unmarshal(stateResult, &stateResponse); err != nil {
+				// The state check query returned something unexpected.
+				return "", "", fmt.Errorf("failed to parse comment state check response: %w", err)
+			}
+			
+			if stateResponse.Data.Node.State == "SUBMITTED" {
+				// The comment is now submitted. This confirms a concurrent operation succeeded.
+				// We can treat this as a success for the current operation as well.
+				return commentID, commentURL, nil
+			}
+			
+			// If the comment is still PENDING, the original submission error is a real issue.
+			return "", "", fmt.Errorf("failed to submit review, and comment is still pending: %w", submitErr)
 		}
 	}
 
