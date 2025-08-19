@@ -217,6 +217,7 @@ func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodie
 	// Threads section using GitHub GraphQL ReviewThread structure
 	if includeThreads {
 		unresolvedCount := 0
+		pendingCommentsCount := 0
 		unresolvedThreads := []map[string]interface{}{}
 		
 		// Filter for unresolved threads to display in the output
@@ -245,12 +246,22 @@ func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodie
 					
 					// Include all comments with author information
 					comments := []map[string]interface{}{}
+					hasPending := false
 					for _, comment := range thread.Comments {
 						commentData := map[string]interface{}{
 							"id":        comment.ID,
 							"author":    comment.Author,
 							"createdAt": comment.CreatedAt,
 							"body":      comment.Body,
+						}
+						
+						// Include state if present (PENDING or SUBMITTED)
+						if comment.State != "" {
+							commentData["state"] = comment.State
+							if comment.State == "PENDING" {
+								hasPending = true
+								pendingCommentsCount++
+							}
 						}
 						
 						// Include URL only if not empty (respects @skip directive)
@@ -261,6 +272,11 @@ func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodie
 						comments = append(comments, commentData)
 					}
 					threadData["comments"] = comments
+					
+					// Mark thread if it has pending comments
+					if hasPending {
+						threadData["hasPendingComments"] = true
+					}
 				}
 				
 				unresolvedThreads = append(unresolvedThreads, threadData)
@@ -270,11 +286,22 @@ func outputFetch(cmd *cobra.Command, data *UnifiedReviewData, includeReviewBodie
 		// Calculate total count from page info for accuracy
 		totalCount := data.ThreadPageInfo.TotalCount
 		
-		output["reviewThreads"] = map[string]interface{}{
+		threadsOutput := map[string]interface{}{
 			"totalCount":       totalCount,
 			"unresolvedCount":  unresolvedCount,
 			"unresolvedThreads": unresolvedThreads, // Unresolved threads
 		}
+		
+		// Add pending comments warning if any are found
+		if pendingCommentsCount > 0 {
+			threadsOutput["pendingCommentsCount"] = pendingCommentsCount
+			threadsOutput["pendingWarning"] = fmt.Sprintf("⚠️ Found %d pending comment(s). Use 'threads submit' to publish them.", pendingCommentsCount)
+			
+			// Print warning to stderr so it's visible even with JSON/YAML output
+			WarningMsg("Found %d pending comment(s) in review threads. Use 'threads submit' to publish them.", pendingCommentsCount).Print()
+		}
+		
+		output["reviewThreads"] = threadsOutput
 	}
 	
 	// Output using unified encoder

@@ -24,6 +24,7 @@ type CommentInfo struct {
 	Body      string `json:"body"`
 	Author    string `json:"author"`
 	CreatedAt string `json:"createdAt"`
+	State     string `json:"state,omitempty"` // PENDING or SUBMITTED
 	DiffHunk  string `json:"diffHunk,omitempty"`
 }
 
@@ -72,6 +73,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $limit: Int!, $excludeUr
                 login
               }
               createdAt
+              state
               diffHunk
             }
           }
@@ -118,6 +120,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $limit: Int!, $excludeUr
 										Login string `json:"login"`
 									} `json:"author"`
 									CreatedAt string `json:"createdAt"`
+									State     string `json:"state"`
 									DiffHunk  string `json:"diffHunk"`
 								} `json:"nodes"`
 							} `json:"comments"`
@@ -152,6 +155,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $limit: Int!, $excludeUr
 				Body:      comment.Body,
 				Author:    comment.Author.Login,
 				CreatedAt: comment.CreatedAt,
+				State:     comment.State,
 				DiffHunk:  comment.DiffHunk,
 			})
 		}
@@ -226,6 +230,7 @@ query($ids: [ID!]!, $excludeUrls: Boolean!) {
             login
           }
           createdAt
+          state
           diffHunk
         }
       }
@@ -264,6 +269,7 @@ query($ids: [ID!]!, $excludeUrls: Boolean!) {
 							Login string `json:"login"`
 						} `json:"author"`
 						CreatedAt string `json:"createdAt"`
+						State     string `json:"state"`
 						DiffHunk  string `json:"diffHunk"`
 					} `json:"nodes"`
 				} `json:"comments"`
@@ -290,6 +296,7 @@ query($ids: [ID!]!, $excludeUrls: Boolean!) {
 				Body:      comment.Body,
 				Author:    comment.Author.Login,
 				CreatedAt: comment.CreatedAt,
+				State:     comment.State,
 				DiffHunk:  comment.DiffHunk,
 			})
 		}
@@ -314,10 +321,15 @@ query($ids: [ID!]!, $excludeUrls: Boolean!) {
 	return threads, nil
 }
 
-// ReplyToThread adds a reply to a review thread using GraphQL mutation
-// Uses addPullRequestReviewThreadReply to avoid creating pending reviews
-func (c *GitHubClient) ReplyToThread(threadID, body string) error {
-	mutation := `
+// ReplyToThread adds a reply to a review thread and intelligently handles review submission
+// The mutation will either:
+// 1. Create a new review and auto-submit it (if no pending review exists)
+// 2. Add to an existing pending review (requires manual submission later)
+// Returns the comment ID and URL of the created comment
+func (c *GitHubClient) ReplyToThread(threadID, body string, autoSubmit bool) (string, string, error) {
+	// First, add the reply to the thread
+	// This will either create a new review or add to an existing pending review
+	replyMutation := `
 mutation($threadID: ID!, $body: String!) {
   addPullRequestReviewThreadReply(input: {
     pullRequestReviewThreadId: $threadID
@@ -326,6 +338,14 @@ mutation($threadID: ID!, $body: String!) {
     comment {
       id
       url
+      state
+      pullRequestReview {
+        id
+        state
+        pullRequest {
+          id
+        }
+      }
     }
   }
 }`
@@ -335,12 +355,105 @@ mutation($threadID: ID!, $body: String!) {
 		"body":     body,
 	}
 
-	_, err := c.RunGraphQLQueryWithVariables(mutation, variables)
+	result, err := c.RunGraphQLQueryWithVariables(replyMutation, variables)
 	if err != nil {
-		return fmt.Errorf("failed to reply to thread: %w", err)
+		return "", "", fmt.Errorf("failed to reply to thread: %w", err)
 	}
 
-	return nil
+	// Parse the response to check if the comment is pending
+	var replyResponse struct {
+		Data struct {
+			AddPullRequestReviewThreadReply struct {
+				Comment struct {
+					ID                string `json:"id"`
+					URL               string `json:"url"`
+					State             string `json:"state"` // PENDING or SUBMITTED
+					PullRequestReview struct {
+						ID    string `json:"id"`
+						State string `json:"state"` // PENDING, COMMENTED, etc.
+						PullRequest struct {
+							ID string `json:"id"`
+						} `json:"pullRequest"`
+					} `json:"pullRequestReview"`
+				} `json:"comment"`
+			} `json:"addPullRequestReviewThreadReply"`
+		} `json:"data"`
+	}
+
+	if err := Unmarshal(result, &replyResponse); err != nil {
+		return "", "", fmt.Errorf("failed to parse reply response: %w", err)
+	}
+
+	comment := replyResponse.Data.AddPullRequestReviewThreadReply.Comment
+	review := comment.PullRequestReview
+	
+	// Store comment ID and URL to return
+	commentID := comment.ID
+	commentURL := comment.URL
+	
+	// Only attempt to submit if:
+	// 1. autoSubmit is enabled (default true)
+	// 2. The comment is PENDING (meaning it's part of a pending review)
+	// 3. We have a valid review ID
+	if autoSubmit && comment.State == "PENDING" && review.ID != "" {
+		// The comment is pending, so we need to submit the review
+		submitMutation := `
+mutation($reviewID: ID!, $event: PullRequestReviewEvent!) {
+  submitPullRequestReview(input: {
+    pullRequestReviewId: $reviewID
+    event: $event
+  }) {
+    pullRequestReview {
+      id
+      state
+    }
+  }
+}`
+
+		submitVars := map[string]interface{}{
+			"reviewID": review.ID,
+			"event":    "COMMENT",
+		}
+
+		_, submitErr := c.RunGraphQLQueryWithVariables(submitMutation, submitVars)
+		if submitErr != nil {
+			// The submission with a specific review ID failed. This can happen in a race condition
+			// if a concurrent reply already submitted the review. To handle this gracefully,
+			// we re-fetch the comment's state to see if it's now SUBMITTED.
+			checkStateQuery := `query($commentID: ID!) { node(id: $commentID) { ... on PullRequestReviewComment { state } } }`
+			checkStateVars := map[string]interface{}{"commentID": commentID}
+			
+			stateResult, stateErr := c.RunGraphQLQueryWithVariables(checkStateQuery, checkStateVars)
+			if stateErr != nil {
+				// We failed to submit and also failed to check the current state.
+				// It's safest to report both errors to the user.
+				return "", "", fmt.Errorf("failed to submit review, and state re-check also failed: original error: %w, check error: %w", submitErr, stateErr)
+			}
+			
+			var stateResponse struct {
+				Data struct {
+					Node struct {
+						State string `json:"state"`
+					} `json:"node"`
+				} `json:"data"`
+			}
+			if err := Unmarshal(stateResult, &stateResponse); err != nil {
+				// The state check query returned something unexpected.
+				return "", "", fmt.Errorf("failed to parse comment state check response: %w", err)
+			}
+			
+			if stateResponse.Data.Node.State == "SUBMITTED" {
+				// The comment is now submitted. This confirms a concurrent operation succeeded.
+				// We can treat this as a success for the current operation as well.
+				return commentID, commentURL, nil
+			}
+			
+			// If the comment is still PENDING, the original submission error is a real issue.
+			return "", "", fmt.Errorf("failed to submit review, and comment is still pending: %w", submitErr)
+		}
+	}
+
+	return commentID, commentURL, nil
 }
 
 // ResolveThread resolves a review thread using GraphQL mutation

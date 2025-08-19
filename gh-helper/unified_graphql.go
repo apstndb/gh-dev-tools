@@ -159,6 +159,7 @@ fragment ThreadCommentFields on PullRequestReviewComment {
   body
   author { login }
   createdAt
+  state
   diffHunk @include(if: $includeCommentDetails)
 }
 

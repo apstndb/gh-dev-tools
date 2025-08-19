@@ -77,6 +77,7 @@ type ThreadComment struct {
 	Author    string `json:"author"`
 	Body      string `json:"body"`
 	CreatedAt string `json:"createdAt"`
+	State     string `json:"state,omitempty"` // PENDING or SUBMITTED
 }
 
 // UnifiedReviewOptions controls what data to fetch
@@ -253,6 +254,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
               author { login }
               body
               createdAt
+              state
             }
           }
         }
@@ -280,6 +282,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
               author { login }
               body
               createdAt
+              state
             }
           }
         }
@@ -408,6 +411,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 									} `json:"author"`
 									Body      string `json:"body"`
 									CreatedAt string `json:"createdAt"`
+									State     string `json:"state"`
 								} `json:"nodes"`
 							} `json:"comments"`
 						} `json:"nodes"`
@@ -430,6 +434,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 									} `json:"author"`
 									Body      string `json:"body"`
 									CreatedAt string `json:"createdAt"`
+									State     string `json:"state"`
 								} `json:"nodes"`
 							} `json:"comments"`
 						} `json:"nodes"`
@@ -550,6 +555,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!,
 				Author:    comment.Author.Login,
 				Body:      comment.Body,
 				CreatedAt: comment.CreatedAt,
+				State:     comment.State,
 			})
 
 			lastReplier = comment.Author.Login

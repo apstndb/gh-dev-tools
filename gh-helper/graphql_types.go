@@ -125,6 +125,31 @@ type AddPullRequestReviewThreadReplyResponse struct {
 	} `json:"data"`
 }
 
+// Submit Pull Request Review Mutation
+type SubmitPullRequestReviewInput struct {
+	ClientMutationID    *string `json:"clientMutationId,omitempty"`
+	PullRequestID       *string `json:"pullRequestId,omitempty"`
+	PullRequestReviewID *string `json:"pullRequestReviewId,omitempty"`
+	Event               string  `json:"event"` // COMMENT, APPROVE, REQUEST_CHANGES, or DISMISS
+	Body                *string `json:"body,omitempty"`
+}
+
+type SubmitPullRequestReviewVariables struct {
+	Input SubmitPullRequestReviewInput `json:"input"`
+}
+
+type SubmitPullRequestReviewResponse struct {
+	Data struct {
+		SubmitPullRequestReview struct {
+			PullRequestReview struct {
+				ID    string `json:"id"`
+				State string `json:"state"`
+				Body  string `json:"body"`
+			} `json:"pullRequestReview"`
+		} `json:"submitPullRequestReview"`
+	} `json:"data"`
+}
+
 // Add Comment Mutation (for PR/Issue comments)
 type AddCommentInput struct {
 	ClientMutationID *string `json:"clientMutationId,omitempty"`
