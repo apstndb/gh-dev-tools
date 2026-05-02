@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	copilotReviewBotLogin = "copilot-pull-request-reviewer[bot]"
-	geminiReviewBotLogin  = "gemini-code-assist[bot]"
+	copilotReviewBotLogin = "copilot-pull-request-reviewer"
+	geminiReviewBotLogin  = "gemini-code-assist"
 )
 
 var botStatusCmd = &cobra.Command{
@@ -57,6 +57,8 @@ type ReviewBotStatus struct {
 	LatestCurrentHeadReviewID    string             `json:"latestCurrentHeadReviewId,omitempty"`
 	LatestCurrentHeadReviewState string             `json:"latestCurrentHeadReviewState,omitempty"`
 	UnresolvedCurrentHeadThreads []BotThreadSummary `json:"unresolvedCurrentHeadThreads"`
+	UnresolvedOtherThreads       []BotThreadSummary `json:"unresolvedOtherThreads"`
+	ReviewDataIncomplete         bool               `json:"reviewDataIncomplete"`
 	NextAction                   string             `json:"nextAction"`
 }
 
@@ -66,6 +68,7 @@ type BotThreadSummary struct {
 	Line        *int   `json:"line"`
 	IsOutdated  bool   `json:"isOutdated"`
 	Author      string `json:"author"`
+	CommitOID   string `json:"commitOid,omitempty"`
 	CreatedAt   string `json:"createdAt"`
 	BodyPreview string `json:"bodyPreview"`
 }
@@ -85,6 +88,7 @@ type botThreadNode struct {
 	Line       *int
 	IsResolved bool
 	IsOutdated bool
+	Truncated  bool
 	Comments   []botThreadComment
 }
 
@@ -94,6 +98,69 @@ type botThreadComment struct {
 	CreatedAt string
 	State     string
 	CommitOID string
+}
+
+type botReviewStatusResponse struct {
+	Data struct {
+		Repository struct {
+			PullRequest struct {
+				Number  int    `json:"number"`
+				Title   string `json:"title"`
+				Commits struct {
+					Nodes []struct {
+						Commit struct {
+							OID string `json:"oid"`
+						} `json:"commit"`
+					} `json:"nodes"`
+				} `json:"commits"`
+				Reviews struct {
+					Nodes []struct {
+						ID     string `json:"id"`
+						Author struct {
+							Login string `json:"login"`
+						} `json:"author"`
+						State     string `json:"state"`
+						Body      string `json:"body"`
+						CreatedAt string `json:"createdAt"`
+						Commit    struct {
+							OID string `json:"oid"`
+						} `json:"commit"`
+					} `json:"nodes"`
+				} `json:"reviews"`
+				ReviewThreads struct {
+					PageInfo struct {
+						HasNextPage bool   `json:"hasNextPage"`
+						EndCursor   string `json:"endCursor"`
+					} `json:"pageInfo"`
+					Nodes []struct {
+						ID         string `json:"id"`
+						Path       string `json:"path"`
+						Line       *int   `json:"line"`
+						IsResolved bool   `json:"isResolved"`
+						IsOutdated bool   `json:"isOutdated"`
+						Comments   struct {
+							PageInfo struct {
+								HasNextPage bool `json:"hasNextPage"`
+							} `json:"pageInfo"`
+							Nodes []struct {
+								Body      string `json:"body"`
+								CreatedAt string `json:"createdAt"`
+								State     string `json:"state"`
+								Author    struct {
+									Login string `json:"login"`
+								} `json:"author"`
+								PullRequestReview struct {
+									Commit struct {
+										OID string `json:"oid"`
+									} `json:"commit"`
+								} `json:"pullRequestReview"`
+							} `json:"nodes"`
+						} `json:"comments"`
+					} `json:"nodes"`
+				} `json:"reviewThreads"`
+			} `json:"pullRequest"`
+		} `json:"repository"`
+	} `json:"data"`
 }
 
 func showBotStatus(cmd *cobra.Command, args []string) error {
@@ -120,7 +187,7 @@ func (c *GitHubClient) GetBotReviewReport(prNumber string) (*BotReviewReport, er
 	}
 
 	query := `
-query($owner: String!, $repo: String!, $prNumber: Int!) {
+query($owner: String!, $repo: String!, $prNumber: Int!, $threadAfter: String) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $prNumber) {
       number
@@ -144,7 +211,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
           }
         }
       }
-      reviewThreads(first: 100) {
+      reviewThreads(first: 100, after: $threadAfter) {
         nodes {
           id
           path
@@ -152,6 +219,9 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
           isResolved
           isOutdated
           comments(first: 100) {
+            pageInfo {
+              hasNextPage
+            }
             nodes {
               body
               createdAt
@@ -167,84 +237,54 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
         }
         pageInfo {
           hasNextPage
+          endCursor
         }
       }
     }
   }
 }`
 
-	variables := map[string]interface{}{
-		"owner":    c.Owner,
-		"repo":     c.Repo,
-		"prNumber": prNumberInt,
-	}
+	var response botReviewStatusResponse
+	threads := []botThreadNode{}
+	threadsTruncated := false
+	threadAfter := ""
+	for {
+		variables := map[string]interface{}{
+			"owner":       c.Owner,
+			"repo":        c.Repo,
+			"prNumber":    prNumberInt,
+			"threadAfter": nil,
+		}
+		if threadAfter != "" {
+			variables["threadAfter"] = threadAfter
+		}
 
-	result, err := c.RunGraphQLQueryWithVariables(query, variables)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch bot review status: %w", err)
-	}
+		result, err := c.RunGraphQLQueryWithVariables(query, variables)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch bot review status: %w", err)
+		}
 
-	var response struct {
-		Data struct {
-			Repository struct {
-				PullRequest struct {
-					Number  int    `json:"number"`
-					Title   string `json:"title"`
-					Commits struct {
-						Nodes []struct {
-							Commit struct {
-								OID string `json:"oid"`
-							} `json:"commit"`
-						} `json:"nodes"`
-					} `json:"commits"`
-					Reviews struct {
-						Nodes []struct {
-							ID     string `json:"id"`
-							Author struct {
-								Login string `json:"login"`
-							} `json:"author"`
-							State     string `json:"state"`
-							Body      string `json:"body"`
-							CreatedAt string `json:"createdAt"`
-							Commit    struct {
-								OID string `json:"oid"`
-							} `json:"commit"`
-						} `json:"nodes"`
-					} `json:"reviews"`
-					ReviewThreads struct {
-						PageInfo struct {
-							HasNextPage bool `json:"hasNextPage"`
-						} `json:"pageInfo"`
-						Nodes []struct {
-							ID         string `json:"id"`
-							Path       string `json:"path"`
-							Line       *int   `json:"line"`
-							IsResolved bool   `json:"isResolved"`
-							IsOutdated bool   `json:"isOutdated"`
-							Comments   struct {
-								Nodes []struct {
-									Body      string `json:"body"`
-									CreatedAt string `json:"createdAt"`
-									State     string `json:"state"`
-									Author    struct {
-										Login string `json:"login"`
-									} `json:"author"`
-									PullRequestReview struct {
-										Commit struct {
-											OID string `json:"oid"`
-										} `json:"commit"`
-									} `json:"pullRequestReview"`
-								} `json:"nodes"`
-							} `json:"comments"`
-						} `json:"nodes"`
-					} `json:"reviewThreads"`
-				} `json:"pullRequest"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
+		var pageResponse botReviewStatusResponse
+		if err := Unmarshal(result, &pageResponse); err != nil {
+			return nil, fmt.Errorf("failed to parse bot review status: %w", err)
+		}
+		if response.Data.Repository.PullRequest.Number == 0 {
+			response = pageResponse
+		}
 
-	if err := Unmarshal(result, &response); err != nil {
-		return nil, fmt.Errorf("failed to parse bot review status: %w", err)
+		pageThreads, pageTruncated := botThreadNodesFromResponse(pageResponse)
+		threads = append(threads, pageThreads...)
+		threadsTruncated = threadsTruncated || pageTruncated
+
+		pageInfo := pageResponse.Data.Repository.PullRequest.ReviewThreads.PageInfo
+		if !pageInfo.HasNextPage {
+			break
+		}
+		if pageInfo.EndCursor == "" {
+			threadsTruncated = true
+			break
+		}
+		threadAfter = pageInfo.EndCursor
 	}
 
 	pr := response.Data.Repository.PullRequest
@@ -265,7 +305,22 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 		})
 	}
 
+	localHeadOID := localGitHeadOID()
+	return buildBotReviewReport(
+		pr.Number,
+		pr.Title,
+		prHeadOID,
+		localHeadOID,
+		reviews,
+		threads,
+		threadsTruncated,
+	), nil
+}
+
+func botThreadNodesFromResponse(response botReviewStatusResponse) ([]botThreadNode, bool) {
+	pr := response.Data.Repository.PullRequest
 	threads := make([]botThreadNode, 0, len(pr.ReviewThreads.Nodes))
+	threadsTruncated := false
 	for _, thread := range pr.ReviewThreads.Nodes {
 		comments := make([]botThreadComment, 0, len(thread.Comments.Nodes))
 		for _, comment := range thread.Comments.Nodes {
@@ -277,20 +332,19 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 				CommitOID: comment.PullRequestReview.Commit.OID,
 			})
 		}
+		commentsTruncated := thread.Comments.PageInfo.HasNextPage
+		threadsTruncated = threadsTruncated || commentsTruncated
 		threads = append(threads, botThreadNode{
 			ID:         thread.ID,
 			Path:       thread.Path,
 			Line:       thread.Line,
 			IsResolved: thread.IsResolved,
 			IsOutdated: thread.IsOutdated,
+			Truncated:  commentsTruncated,
 			Comments:   comments,
 		})
 	}
-
-	localHeadOID := localGitHeadOID()
-	report := buildBotReviewReport(pr.Number, pr.Title, prHeadOID, localHeadOID, reviews, threads)
-	report.ThreadsTruncated = pr.ReviewThreads.PageInfo.HasNextPage
-	return report, nil
+	return threads, threadsTruncated
 }
 
 func buildBotReviewReport(
@@ -300,10 +354,11 @@ func buildBotReviewReport(
 	localHeadOID string,
 	reviews []botReviewNode,
 	threads []botThreadNode,
+	threadsTruncated bool,
 ) *BotReviewReport {
 	bots := []ReviewBotStatus{
-		buildReviewBotStatus("copilot", copilotReviewBotLogin, prHeadOID, reviews, threads),
-		buildReviewBotStatus("gemini", geminiReviewBotLogin, prHeadOID, reviews, threads),
+		buildReviewBotStatus("copilot", copilotReviewBotLogin, prHeadOID, reviews, threads, threadsTruncated),
+		buildReviewBotStatus("gemini", geminiReviewBotLogin, prHeadOID, reviews, threads, threadsTruncated),
 	}
 
 	return &BotReviewReport{
@@ -312,6 +367,7 @@ func buildBotReviewReport(
 		PRHeadOID:          prHeadOID,
 		LocalHeadOID:       localHeadOID,
 		LocalHeadMatchesPR: localHeadOID != "" && prHeadOID != "" && localHeadOID == prHeadOID,
+		ThreadsTruncated:   threadsTruncated,
 		Bots:               bots,
 	}
 }
@@ -322,12 +378,13 @@ func buildReviewBotStatus(
 	headOID string,
 	reviews []botReviewNode,
 	threads []botThreadNode,
+	reviewDataIncomplete bool,
 ) ReviewBotStatus {
 	var latest *botReviewNode
 	var latestCurrentHead *botReviewNode
 	for i := range reviews {
 		review := &reviews[i]
-		if review.Author != login || !isRelevantBotReview(login, review.Body) {
+		if !botLoginMatches(review.Author, login) || !isRelevantBotReview(login, review.Body) {
 			continue
 		}
 		if latest == nil || review.CreatedAt > latest.CreatedAt {
@@ -338,12 +395,14 @@ func buildReviewBotStatus(
 		}
 	}
 
-	unresolvedThreads := unresolvedBotThreads(login, headOID, threads)
+	currentHeadThreads, otherThreads := unresolvedBotThreads(login, headOID, threads)
 	status := ReviewBotStatus{
 		Bot:                          bot,
 		Login:                        login,
 		ReviewedCurrentHead:          latestCurrentHead != nil,
-		UnresolvedCurrentHeadThreads: unresolvedThreads,
+		UnresolvedCurrentHeadThreads: currentHeadThreads,
+		UnresolvedOtherThreads:       otherThreads,
+		ReviewDataIncomplete:         reviewDataIncomplete,
 	}
 
 	if latest != nil {
@@ -358,23 +417,38 @@ func buildReviewBotStatus(
 		status.PositiveSignal = positiveBotReviewSignal(login, latestCurrentHead.Body)
 	}
 
-	status.Ready = botReady(login, status.ReviewedCurrentHead, status.PositiveSignal, unresolvedThreads)
+	status.Ready = botReady(
+		login,
+		status.ReviewedCurrentHead,
+		status.PositiveSignal,
+		currentHeadThreads,
+		otherThreads,
+		reviewDataIncomplete,
+	)
 	status.NextAction = botNextAction(bot, status)
 	return status
 }
 
-func botReady(login string, reviewedCurrentHead bool, positiveSignal string, unresolvedThreads []BotThreadSummary) bool {
-	if !reviewedCurrentHead || len(unresolvedThreads) > 0 {
+func botReady(
+	login string,
+	reviewedCurrentHead bool,
+	positiveSignal string,
+	currentHeadThreads []BotThreadSummary,
+	otherThreads []BotThreadSummary,
+	reviewDataIncomplete bool,
+) bool {
+	if !reviewedCurrentHead || len(currentHeadThreads) > 0 || len(otherThreads) > 0 || reviewDataIncomplete {
 		return false
 	}
 	if login == geminiReviewBotLogin {
 		return positiveSignal != ""
 	}
-	return positiveSignal != "" || len(unresolvedThreads) == 0
+	return true
 }
 
-func unresolvedBotThreads(login string, headOID string, threads []botThreadNode) []BotThreadSummary {
-	summaries := []BotThreadSummary{}
+func unresolvedBotThreads(login string, headOID string, threads []botThreadNode) ([]BotThreadSummary, []BotThreadSummary) {
+	currentHeadSummaries := []BotThreadSummary{}
+	otherSummaries := []BotThreadSummary{}
 	for _, thread := range threads {
 		if thread.IsResolved {
 			continue
@@ -383,7 +457,7 @@ func unresolvedBotThreads(login string, headOID string, threads []botThreadNode)
 		var botComment *botThreadComment
 		for i := range thread.Comments {
 			comment := &thread.Comments[i]
-			if comment.Author == login && comment.CommitOID == headOID {
+			if botLoginMatches(comment.Author, login) {
 				botComment = comment
 			}
 		}
@@ -391,27 +465,32 @@ func unresolvedBotThreads(login string, headOID string, threads []botThreadNode)
 			continue
 		}
 
-		summaries = append(summaries, BotThreadSummary{
+		summary := BotThreadSummary{
 			ID:          thread.ID,
 			Path:        thread.Path,
 			Line:        thread.Line,
 			IsOutdated:  thread.IsOutdated,
 			Author:      botComment.Author,
+			CommitOID:   botComment.CommitOID,
 			CreatedAt:   botComment.CreatedAt,
 			BodyPreview: truncateForStatus(botComment.Body, 160),
-		})
+		}
+		if botComment.CommitOID == headOID {
+			currentHeadSummaries = append(currentHeadSummaries, summary)
+			continue
+		}
+		otherSummaries = append(otherSummaries, summary)
 	}
-	return summaries
+	return currentHeadSummaries, otherSummaries
 }
 
 func isRelevantBotReview(login string, body string) bool {
 	if login != geminiReviewBotLogin {
 		return true
 	}
-	if strings.Contains(body, geminiReviewHeader) {
-		return true
-	}
-	return strings.Contains(body, "I have no feedback to provide.")
+	return !strings.Contains(body, geminiSummaryHeader) ||
+		strings.Contains(body, geminiReviewHeader) ||
+		strings.Contains(body, "I have no feedback to provide.")
 }
 
 func positiveBotReviewSignal(login string, body string) string {
@@ -433,6 +512,12 @@ func botNextAction(bot string, status ReviewBotStatus) string {
 	if len(status.UnresolvedCurrentHeadThreads) > 0 {
 		return "address, reply to, and resolve the unresolved current-head threads"
 	}
+	if len(status.UnresolvedOtherThreads) > 0 {
+		return "address, reply to, and resolve unresolved threads from earlier commits"
+	}
+	if status.ReviewDataIncomplete {
+		return "review thread data is incomplete because at least one thread has more than 100 comments"
+	}
 	if status.Ready {
 		return "no action needed for the current PR head"
 	}
@@ -443,6 +528,14 @@ func botNextAction(bot string, status ReviewBotStatus) string {
 		return "request Gemini review for the current PR head"
 	}
 	return "request Copilot review for the current PR head"
+}
+
+func botLoginMatches(actual string, expected string) bool {
+	return normalizeBotLogin(actual) == normalizeBotLogin(expected)
+}
+
+func normalizeBotLogin(login string) string {
+	return strings.TrimSuffix(login, "[bot]")
 }
 
 func requestGeminiReviewForCurrentHead(client *GitHubClient, prNumber string) error {
