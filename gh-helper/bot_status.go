@@ -516,7 +516,7 @@ func botNextAction(bot string, status ReviewBotStatus) string {
 		return "address, reply to, and resolve unresolved threads from earlier commits"
 	}
 	if status.ReviewDataIncomplete {
-		return "review thread data is incomplete because at least one thread has more than 100 comments"
+		return "review thread/comment data is incomplete because pagination limits left some data truncated"
 	}
 	if status.Ready {
 		return "no action needed for the current PR head"
