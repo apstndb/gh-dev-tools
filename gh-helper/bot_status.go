@@ -40,6 +40,7 @@ type BotReviewReport struct {
 	PRHeadOID          string            `json:"prHeadOid"`
 	LocalHeadOID       string            `json:"localHeadOid,omitempty"`
 	LocalHeadMatchesPR bool              `json:"localHeadMatchesPr"`
+	ReviewsTruncated   bool              `json:"reviewsTruncated"`
 	ThreadsTruncated   bool              `json:"threadsTruncated"`
 	Bots               []ReviewBotStatus `json:"bots"`
 }
@@ -49,6 +50,7 @@ type ReviewBotStatus struct {
 	Login                        string             `json:"login"`
 	ReviewedCurrentHead          bool               `json:"reviewedCurrentHead"`
 	Ready                        bool               `json:"ready"`
+	ReadinessPolicy              string             `json:"readinessPolicy"`
 	PositiveSignal               string             `json:"positiveSignal,omitempty"`
 	LatestReviewID               string             `json:"latestReviewId,omitempty"`
 	LatestReviewState            string             `json:"latestReviewState,omitempty"`
@@ -114,6 +116,9 @@ type botReviewStatusResponse struct {
 					} `json:"nodes"`
 				} `json:"commits"`
 				Reviews struct {
+					PageInfo struct {
+						HasPreviousPage bool `json:"hasPreviousPage"`
+					} `json:"pageInfo"`
 					Nodes []struct {
 						ID     string `json:"id"`
 						Author struct {
@@ -200,6 +205,9 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $threadAfter: String) {
         }
       }
       reviews(last: 100) {
+        pageInfo {
+          hasPreviousPage
+        }
         nodes {
           id
           author { login }
@@ -306,6 +314,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $threadAfter: String) {
 	}
 
 	localHeadOID := localGitHeadOID()
+	reviewsTruncated := pr.Reviews.PageInfo.HasPreviousPage
 	return buildBotReviewReport(
 		pr.Number,
 		pr.Title,
@@ -313,6 +322,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $threadAfter: String) {
 		localHeadOID,
 		reviews,
 		threads,
+		reviewsTruncated,
 		threadsTruncated,
 	), nil
 }
@@ -354,11 +364,28 @@ func buildBotReviewReport(
 	localHeadOID string,
 	reviews []botReviewNode,
 	threads []botThreadNode,
+	reviewsTruncated bool,
 	threadsTruncated bool,
 ) *BotReviewReport {
 	bots := []ReviewBotStatus{
-		buildReviewBotStatus("copilot", copilotReviewBotLogin, prHeadOID, reviews, threads, threadsTruncated),
-		buildReviewBotStatus("gemini", geminiReviewBotLogin, prHeadOID, reviews, threads, threadsTruncated),
+		buildReviewBotStatus(
+			"copilot",
+			copilotReviewBotLogin,
+			prHeadOID,
+			reviews,
+			threads,
+			reviewsTruncated,
+			threadsTruncated,
+		),
+		buildReviewBotStatus(
+			"gemini",
+			geminiReviewBotLogin,
+			prHeadOID,
+			reviews,
+			threads,
+			reviewsTruncated,
+			threadsTruncated,
+		),
 	}
 
 	return &BotReviewReport{
@@ -367,6 +394,7 @@ func buildBotReviewReport(
 		PRHeadOID:          prHeadOID,
 		LocalHeadOID:       localHeadOID,
 		LocalHeadMatchesPR: localHeadOID != "" && prHeadOID != "" && localHeadOID == prHeadOID,
+		ReviewsTruncated:   reviewsTruncated,
 		ThreadsTruncated:   threadsTruncated,
 		Bots:               bots,
 	}
@@ -378,6 +406,7 @@ func buildReviewBotStatus(
 	headOID string,
 	reviews []botReviewNode,
 	threads []botThreadNode,
+	reviewsTruncated bool,
 	reviewDataIncomplete bool,
 ) ReviewBotStatus {
 	var latest *botReviewNode
@@ -400,9 +429,10 @@ func buildReviewBotStatus(
 		Bot:                          bot,
 		Login:                        login,
 		ReviewedCurrentHead:          latestCurrentHead != nil,
+		ReadinessPolicy:              readinessPolicy(login),
 		UnresolvedCurrentHeadThreads: currentHeadThreads,
 		UnresolvedOtherThreads:       otherThreads,
-		ReviewDataIncomplete:         reviewDataIncomplete,
+		ReviewDataIncomplete:         reviewDataIncomplete || (reviewsTruncated && latestCurrentHead == nil),
 	}
 
 	if latest != nil {
@@ -423,10 +453,17 @@ func buildReviewBotStatus(
 		status.PositiveSignal,
 		currentHeadThreads,
 		otherThreads,
-		reviewDataIncomplete,
+		status.ReviewDataIncomplete,
 	)
 	status.NextAction = botNextAction(bot, status)
 	return status
+}
+
+func readinessPolicy(login string) string {
+	if login == geminiReviewBotLogin {
+		return "Gemini is ready only after a current-head no-feedback review and no unresolved Gemini threads."
+	}
+	return "Copilot is ready after any current-head review and no unresolved Copilot threads."
 }
 
 func botReady(

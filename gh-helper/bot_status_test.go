@@ -24,7 +24,7 @@ func TestBuildReviewBotStatusGeminiIgnoresSummaryReview(t *testing.T) {
 		},
 	}
 
-	status := buildReviewBotStatus("gemini", geminiReviewBotLogin, "head", reviews, nil, false)
+	status := buildReviewBotStatus("gemini", geminiReviewBotLogin, "head", reviews, nil, false, false)
 	if !status.ReviewedCurrentHead {
 		t.Fatal("Gemini code review was not recognized for current head")
 	}
@@ -50,12 +50,15 @@ func TestBuildReviewBotStatusGeminiRequiresPositiveSignal(t *testing.T) {
 		},
 	}
 
-	status := buildReviewBotStatus("gemini", geminiReviewBotLogin, "head", reviews, nil, false)
+	status := buildReviewBotStatus("gemini", geminiReviewBotLogin, "head", reviews, nil, false, false)
 	if !status.ReviewedCurrentHead {
 		t.Fatal("Gemini review was not recognized for current head")
 	}
 	if status.Ready {
 		t.Fatal("Gemini review without the no-feedback signal should not be ready")
+	}
+	if status.ReadinessPolicy == "" {
+		t.Fatal("ReadinessPolicy is empty")
 	}
 }
 
@@ -106,7 +109,7 @@ func TestBuildReviewBotStatusCurrentHeadThreads(t *testing.T) {
 		},
 	}
 
-	status := buildReviewBotStatus("copilot", copilotReviewBotLogin, "head", nil, threads, false)
+	status := buildReviewBotStatus("copilot", copilotReviewBotLogin, "head", nil, threads, false, false)
 	if len(status.UnresolvedCurrentHeadThreads) != 1 {
 		t.Fatalf("UnresolvedCurrentHeadThreads len = %d, want 1", len(status.UnresolvedCurrentHeadThreads))
 	}
@@ -124,12 +127,12 @@ func TestBuildReviewBotStatusCurrentHeadThreads(t *testing.T) {
 func TestBuildBotReviewReportLocalHeadMatch(t *testing.T) {
 	t.Parallel()
 
-	report := buildBotReviewReport(12, "test", "abc", "abc", nil, nil, false)
+	report := buildBotReviewReport(12, "test", "abc", "abc", nil, nil, false, false)
 	if !report.LocalHeadMatchesPR {
 		t.Fatal("LocalHeadMatchesPR = false, want true")
 	}
 
-	report = buildBotReviewReport(12, "test", "abc", "def", nil, nil, false)
+	report = buildBotReviewReport(12, "test", "abc", "def", nil, nil, false, false)
 	if report.LocalHeadMatchesPR {
 		t.Fatal("LocalHeadMatchesPR = true, want false")
 	}
@@ -149,7 +152,7 @@ func TestBuildReviewBotStatusNormalizesBotLogin(t *testing.T) {
 		},
 	}
 
-	status := buildReviewBotStatus("copilot", copilotReviewBotLogin, "head", reviews, nil, false)
+	status := buildReviewBotStatus("copilot", copilotReviewBotLogin, "head", reviews, nil, false, false)
 	if !status.ReviewedCurrentHead {
 		t.Fatal("Copilot review with [bot] suffix was not recognized")
 	}
@@ -172,9 +175,21 @@ func TestBuildReviewBotStatusIncompleteDataIsNotReady(t *testing.T) {
 		},
 	}
 
-	status := buildReviewBotStatus("copilot", copilotReviewBotLogin, "head", reviews, nil, true)
+	status := buildReviewBotStatus("copilot", copilotReviewBotLogin, "head", reviews, nil, false, true)
 	if status.Ready {
 		t.Fatal("Incomplete review data should not be ready")
+	}
+	if !status.ReviewDataIncomplete {
+		t.Fatal("ReviewDataIncomplete = false, want true")
+	}
+}
+
+func TestBuildReviewBotStatusTruncatedReviewsWithoutCurrentHeadIsIncomplete(t *testing.T) {
+	t.Parallel()
+
+	status := buildReviewBotStatus("copilot", copilotReviewBotLogin, "head", nil, nil, true, false)
+	if status.Ready {
+		t.Fatal("Truncated reviews without a current-head review should not be ready")
 	}
 	if !status.ReviewDataIncomplete {
 		t.Fatal("ReviewDataIncomplete = false, want true")
