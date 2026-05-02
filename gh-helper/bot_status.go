@@ -12,6 +12,8 @@ import (
 const (
 	copilotReviewBotLogin = "copilot-pull-request-reviewer"
 	geminiReviewBotLogin  = "gemini-code-assist"
+	maxBotReviewPages     = 20
+	maxBotThreadPages     = 20
 )
 
 var botStatusCmd = &cobra.Command{
@@ -102,7 +104,20 @@ type botThreadComment struct {
 	CommitOID string
 }
 
-type botReviewStatusResponse struct {
+type botStatusCompleteness struct {
+	ReviewsTruncated bool
+	ThreadsTruncated bool
+}
+
+type botReviewMetadata struct {
+	Number           int
+	Title            string
+	PRHeadOID        string
+	Reviews          []botReviewNode
+	ReviewsTruncated bool
+}
+
+type botReviewMetadataResponse struct {
 	Data struct {
 		Repository struct {
 			PullRequest struct {
@@ -117,7 +132,8 @@ type botReviewStatusResponse struct {
 				} `json:"commits"`
 				Reviews struct {
 					PageInfo struct {
-						HasPreviousPage bool `json:"hasPreviousPage"`
+						HasPreviousPage bool   `json:"hasPreviousPage"`
+						StartCursor     string `json:"startCursor"`
 					} `json:"pageInfo"`
 					Nodes []struct {
 						ID     string `json:"id"`
@@ -132,6 +148,15 @@ type botReviewStatusResponse struct {
 						} `json:"commit"`
 					} `json:"nodes"`
 				} `json:"reviews"`
+			} `json:"pullRequest"`
+		} `json:"repository"`
+	} `json:"data"`
+}
+
+type botReviewThreadsResponse struct {
+	Data struct {
+		Repository struct {
+			PullRequest struct {
 				ReviewThreads struct {
 					PageInfo struct {
 						HasNextPage bool   `json:"hasNextPage"`
@@ -191,8 +216,33 @@ func (c *GitHubClient) GetBotReviewReport(prNumber string) (*BotReviewReport, er
 		return nil, fmt.Errorf("invalid PR number format: %w", err)
 	}
 
+	metadata, err := c.fetchBotReviewMetadata(prNumberInt)
+	if err != nil {
+		return nil, err
+	}
+	threads, threadsTruncated, err := c.fetchBotReviewThreads(prNumberInt)
+	if err != nil {
+		return nil, err
+	}
+
+	localHeadOID := localGitHeadOID()
+	return buildBotReviewReport(
+		metadata.Number,
+		metadata.Title,
+		metadata.PRHeadOID,
+		localHeadOID,
+		metadata.Reviews,
+		threads,
+		botStatusCompleteness{
+			ReviewsTruncated: metadata.ReviewsTruncated,
+			ThreadsTruncated: threadsTruncated,
+		},
+	), nil
+}
+
+func (c *GitHubClient) fetchBotReviewMetadata(prNumberInt int) (*botReviewMetadata, error) {
 	query := `
-query($owner: String!, $repo: String!, $prNumber: Int!, $threadAfter: String) {
+query($owner: String!, $repo: String!, $prNumber: Int!, $reviewBefore: String) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $prNumber) {
       number
@@ -204,9 +254,10 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $threadAfter: String) {
           }
         }
       }
-      reviews(last: 100) {
+      reviews(last: 100, before: $reviewBefore) {
         pageInfo {
           hasPreviousPage
+          startCursor
         }
         nodes {
           id
@@ -219,6 +270,75 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $threadAfter: String) {
           }
         }
       }
+    }
+  }
+}`
+
+	metadata := &botReviewMetadata{}
+	reviewBefore := ""
+	for page := 0; ; page++ {
+		variables := map[string]interface{}{
+			"owner":        c.Owner,
+			"repo":         c.Repo,
+			"prNumber":     prNumberInt,
+			"reviewBefore": nil,
+		}
+		if reviewBefore != "" {
+			variables["reviewBefore"] = reviewBefore
+		}
+
+		result, err := c.RunGraphQLQueryWithVariables(query, variables)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch bot review metadata: %w", err)
+		}
+
+		var response botReviewMetadataResponse
+		if err := Unmarshal(result, &response); err != nil {
+			return nil, fmt.Errorf("failed to parse bot review metadata: %w", err)
+		}
+
+		pr := response.Data.Repository.PullRequest
+		if metadata.Number == 0 {
+			metadata.Number = pr.Number
+			metadata.Title = pr.Title
+			if len(pr.Commits.Nodes) > 0 {
+				metadata.PRHeadOID = pr.Commits.Nodes[0].Commit.OID
+			}
+		}
+		for _, review := range pr.Reviews.Nodes {
+			metadata.Reviews = append(metadata.Reviews, botReviewNode{
+				ID:        review.ID,
+				Author:    review.Author.Login,
+				State:     review.State,
+				Body:      review.Body,
+				CreatedAt: review.CreatedAt,
+				CommitOID: review.Commit.OID,
+			})
+		}
+
+		pageInfo := pr.Reviews.PageInfo
+		if !pageInfo.HasPreviousPage {
+			break
+		}
+		if pageInfo.StartCursor == "" {
+			metadata.ReviewsTruncated = true
+			break
+		}
+		if page+1 >= maxBotReviewPages {
+			metadata.ReviewsTruncated = true
+			break
+		}
+		reviewBefore = pageInfo.StartCursor
+	}
+
+	return metadata, nil
+}
+
+func (c *GitHubClient) fetchBotReviewThreads(prNumberInt int) ([]botThreadNode, bool, error) {
+	query := `
+query($owner: String!, $repo: String!, $prNumber: Int!, $threadAfter: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $prNumber) {
       reviewThreads(first: 100, after: $threadAfter) {
         nodes {
           id
@@ -252,11 +372,10 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $threadAfter: String) {
   }
 }`
 
-	var response botReviewStatusResponse
 	threads := []botThreadNode{}
 	threadsTruncated := false
 	threadAfter := ""
-	for {
+	for page := 0; ; page++ {
 		variables := map[string]interface{}{
 			"owner":       c.Owner,
 			"repo":        c.Repo,
@@ -269,15 +388,12 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $threadAfter: String) {
 
 		result, err := c.RunGraphQLQueryWithVariables(query, variables)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch bot review status: %w", err)
+			return nil, false, fmt.Errorf("failed to fetch bot review threads: %w", err)
 		}
 
-		var pageResponse botReviewStatusResponse
+		var pageResponse botReviewThreadsResponse
 		if err := Unmarshal(result, &pageResponse); err != nil {
-			return nil, fmt.Errorf("failed to parse bot review status: %w", err)
-		}
-		if response.Data.Repository.PullRequest.Number == 0 {
-			response = pageResponse
+			return nil, false, fmt.Errorf("failed to parse bot review threads: %w", err)
 		}
 
 		pageThreads, pageTruncated := botThreadNodesFromResponse(pageResponse)
@@ -292,42 +408,17 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $threadAfter: String) {
 			threadsTruncated = true
 			break
 		}
+		if page+1 >= maxBotThreadPages {
+			threadsTruncated = true
+			break
+		}
 		threadAfter = pageInfo.EndCursor
 	}
 
-	pr := response.Data.Repository.PullRequest
-	prHeadOID := ""
-	if len(pr.Commits.Nodes) > 0 {
-		prHeadOID = pr.Commits.Nodes[0].Commit.OID
-	}
-
-	reviews := make([]botReviewNode, 0, len(pr.Reviews.Nodes))
-	for _, review := range pr.Reviews.Nodes {
-		reviews = append(reviews, botReviewNode{
-			ID:        review.ID,
-			Author:    review.Author.Login,
-			State:     review.State,
-			Body:      review.Body,
-			CreatedAt: review.CreatedAt,
-			CommitOID: review.Commit.OID,
-		})
-	}
-
-	localHeadOID := localGitHeadOID()
-	reviewsTruncated := pr.Reviews.PageInfo.HasPreviousPage
-	return buildBotReviewReport(
-		pr.Number,
-		pr.Title,
-		prHeadOID,
-		localHeadOID,
-		reviews,
-		threads,
-		reviewsTruncated,
-		threadsTruncated,
-	), nil
+	return threads, threadsTruncated, nil
 }
 
-func botThreadNodesFromResponse(response botReviewStatusResponse) ([]botThreadNode, bool) {
+func botThreadNodesFromResponse(response botReviewThreadsResponse) ([]botThreadNode, bool) {
 	pr := response.Data.Repository.PullRequest
 	threads := make([]botThreadNode, 0, len(pr.ReviewThreads.Nodes))
 	threadsTruncated := false
@@ -364,8 +455,7 @@ func buildBotReviewReport(
 	localHeadOID string,
 	reviews []botReviewNode,
 	threads []botThreadNode,
-	reviewsTruncated bool,
-	threadsTruncated bool,
+	completeness botStatusCompleteness,
 ) *BotReviewReport {
 	bots := []ReviewBotStatus{
 		buildReviewBotStatus(
@@ -374,8 +464,7 @@ func buildBotReviewReport(
 			prHeadOID,
 			reviews,
 			threads,
-			reviewsTruncated,
-			threadsTruncated,
+			completeness,
 		),
 		buildReviewBotStatus(
 			"gemini",
@@ -383,8 +472,7 @@ func buildBotReviewReport(
 			prHeadOID,
 			reviews,
 			threads,
-			reviewsTruncated,
-			threadsTruncated,
+			completeness,
 		),
 	}
 
@@ -394,8 +482,8 @@ func buildBotReviewReport(
 		PRHeadOID:          prHeadOID,
 		LocalHeadOID:       localHeadOID,
 		LocalHeadMatchesPR: localHeadOID != "" && prHeadOID != "" && localHeadOID == prHeadOID,
-		ReviewsTruncated:   reviewsTruncated,
-		ThreadsTruncated:   threadsTruncated,
+		ReviewsTruncated:   completeness.ReviewsTruncated,
+		ThreadsTruncated:   completeness.ThreadsTruncated,
 		Bots:               bots,
 	}
 }
@@ -406,8 +494,7 @@ func buildReviewBotStatus(
 	headOID string,
 	reviews []botReviewNode,
 	threads []botThreadNode,
-	reviewsTruncated bool,
-	reviewDataIncomplete bool,
+	completeness botStatusCompleteness,
 ) ReviewBotStatus {
 	var latest *botReviewNode
 	var latestCurrentHead *botReviewNode
@@ -432,7 +519,7 @@ func buildReviewBotStatus(
 		ReadinessPolicy:              readinessPolicy(login),
 		UnresolvedCurrentHeadThreads: currentHeadThreads,
 		UnresolvedOtherThreads:       otherThreads,
-		ReviewDataIncomplete:         reviewDataIncomplete || (reviewsTruncated && latestCurrentHead == nil),
+		ReviewDataIncomplete:         completeness.ThreadsTruncated || (completeness.ReviewsTruncated && latestCurrentHead == nil),
 	}
 
 	if latest != nil {
@@ -589,6 +676,13 @@ func requestGeminiReviewForCurrentHead(client *GitHubClient, prNumber string) er
 			fmt.Printf("✅ Gemini already reviewed PR head %s; skipping duplicate request\n", report.PRHeadOID)
 			return nil
 		}
+		if bot.ReviewDataIncomplete {
+			return fmt.Errorf("cannot safely request Gemini review because bot review data is incomplete; inspect bot-status output or request /gemini review manually")
+		}
+	}
+
+	if report.ReviewsTruncated {
+		return fmt.Errorf("cannot safely request Gemini review because review history is incomplete; inspect bot-status output or request /gemini review manually")
 	}
 
 	if report.LocalHeadOID != "" && report.PRHeadOID != "" && !report.LocalHeadMatchesPR {
