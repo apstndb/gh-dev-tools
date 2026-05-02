@@ -35,11 +35,11 @@ const (
 
 // ReviewItem represents an actionable item from a review
 type ReviewItem struct {
-	ReviewID    string          `json:"reviewId"`
-	Author      string          `json:"author"`
-	CreatedAt   string          `json:"createdAt"`
-	Severity    ReviewSeverity  `json:"severity"`
-	BodyPreview string          `json:"bodyPreview"`
+	ReviewID    string         `json:"reviewId"`
+	Author      string         `json:"author"`
+	CreatedAt   string         `json:"createdAt"`
+	Severity    ReviewSeverity `json:"severity"`
+	BodyPreview string         `json:"bodyPreview"`
 }
 
 // NewReviewMonitor creates a new review monitor
@@ -89,8 +89,8 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 				PullRequest struct {
 					Reviews struct {
 						Nodes []struct {
-							ID        string `json:"id"`
-							Author    struct {
+							ID     string `json:"id"`
+							Author struct {
 								Login string `json:"login"`
 							} `json:"author"`
 							CreatedAt string `json:"createdAt"`
@@ -115,7 +115,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 
 		// Analyze review body for actionable items
 		severity := m.detectSeverity(review.Body)
-		
+
 		items = append(items, ReviewItem{
 			ReviewID:    review.ID,
 			Author:      review.Author.Login,
@@ -140,51 +140,48 @@ func (m *ReviewMonitor) detectSeverity(body string) ReviewSeverity {
 	return SeverityInfo
 }
 
-
-
 // truncateBody creates a preview of the review body
 func (m *ReviewMonitor) truncateBody(body string, maxLen int) string {
 	// Remove excessive whitespace
 	body = strings.TrimSpace(body)
 	body = strings.ReplaceAll(body, "\n\n\n", "\n\n")
-	
+
 	if len(body) <= maxLen {
 		return body
 	}
-	
+
 	// Try to break at word boundary
 	truncated := body[:maxLen]
 	lastSpace := strings.LastIndex(truncated, " ")
 	if lastSpace > maxLen*3/4 {
 		truncated = truncated[:lastSpace]
 	}
-	
+
 	return truncated + "..."
 }
-
 
 // FormatReviewItems creates a formatted output of review items
 func FormatReviewItems(items []ReviewItem) string {
 	if len(items) == 0 {
 		return "No actionable review items found"
 	}
-	
+
 	var output strings.Builder
-	output.WriteString(fmt.Sprintf("📋 Found %d actionable review item(s):\n\n", len(items)))
-	
+	fmt.Fprintf(&output, "📋 Found %d actionable review item(s):\n\n", len(items))
+
 	// Group by severity
 	bySeverity := make(map[ReviewSeverity][]ReviewItem)
 	for _, item := range items {
 		bySeverity[item.Severity] = append(bySeverity[item.Severity], item)
 	}
-	
+
 	// Output in priority order (only 3 levels now)
 	for _, severity := range []ReviewSeverity{SeverityCritical, SeverityHigh, SeverityInfo} {
 		items, ok := bySeverity[severity]
 		if !ok || len(items) == 0 {
 			continue
 		}
-		
+
 		severityIcon := "ℹ️"
 		switch severity {
 		case SeverityCritical:
@@ -192,10 +189,10 @@ func FormatReviewItems(items []ReviewItem) string {
 		case SeverityHigh:
 			severityIcon = "⚠️"
 		}
-		
-		output.WriteString(fmt.Sprintf("%s %s Priority:\n", severityIcon, severity))
+
+		fmt.Fprintf(&output, "%s %s Priority:\n", severityIcon, severity)
 		for _, item := range items {
-			output.WriteString(fmt.Sprintf("  • %s by %s at %s\n", item.ReviewID, item.Author, item.CreatedAt))
+			fmt.Fprintf(&output, "  • %s by %s at %s\n", item.ReviewID, item.Author, item.CreatedAt)
 			if item.BodyPreview != "" {
 				// Indent body preview for readability
 				previewLines := strings.Split(item.BodyPreview, "\n")
@@ -211,6 +208,6 @@ func FormatReviewItems(items []ReviewItem) string {
 			output.WriteString("\n")
 		}
 	}
-	
+
 	return output.String()
 }

@@ -1,0 +1,133 @@
+package main
+
+import "testing"
+
+func TestBuildReviewBotStatusGeminiIgnoresSummaryReview(t *testing.T) {
+	t.Parallel()
+
+	reviews := []botReviewNode{
+		{
+			ID:        "summary",
+			Author:    geminiReviewBotLogin,
+			State:     "COMMENTED",
+			Body:      geminiSummaryHeader + "\n\nSummary only.",
+			CreatedAt: "2026-05-03T01:00:00Z",
+			CommitOID: "head",
+		},
+		{
+			ID:        "code-review",
+			Author:    geminiReviewBotLogin,
+			State:     "COMMENTED",
+			Body:      "I have no feedback to provide.",
+			CreatedAt: "2026-05-03T00:59:00Z",
+			CommitOID: "head",
+		},
+	}
+
+	status := buildReviewBotStatus("gemini", geminiReviewBotLogin, "head", reviews, nil)
+	if !status.ReviewedCurrentHead {
+		t.Fatal("Gemini code review was not recognized for current head")
+	}
+	if !status.Ready {
+		t.Fatal("Gemini positive review should be ready")
+	}
+	if status.LatestCurrentHeadReviewID != "code-review" {
+		t.Fatalf("LatestCurrentHeadReviewID = %q, want code-review", status.LatestCurrentHeadReviewID)
+	}
+}
+
+func TestBuildReviewBotStatusGeminiRequiresPositiveSignal(t *testing.T) {
+	t.Parallel()
+
+	reviews := []botReviewNode{
+		{
+			ID:        "needs-inspection",
+			Author:    geminiReviewBotLogin,
+			State:     "COMMENTED",
+			Body:      geminiReviewHeader + "\n\nPlease inspect this.",
+			CreatedAt: "2026-05-03T01:00:00Z",
+			CommitOID: "head",
+		},
+	}
+
+	status := buildReviewBotStatus("gemini", geminiReviewBotLogin, "head", reviews, nil)
+	if !status.ReviewedCurrentHead {
+		t.Fatal("Gemini review was not recognized for current head")
+	}
+	if status.Ready {
+		t.Fatal("Gemini review without the no-feedback signal should not be ready")
+	}
+}
+
+func TestBuildReviewBotStatusCurrentHeadThreads(t *testing.T) {
+	t.Parallel()
+
+	line := 42
+	threads := []botThreadNode{
+		{
+			ID:         "current-thread",
+			Path:       "main.go",
+			Line:       &line,
+			IsResolved: false,
+			Comments: []botThreadComment{
+				{
+					Author:    copilotReviewBotLogin,
+					Body:      "Please fix this current-head issue.",
+					CreatedAt: "2026-05-03T01:00:00Z",
+					CommitOID: "head",
+				},
+			},
+		},
+		{
+			ID:         "old-thread",
+			Path:       "old.go",
+			IsResolved: false,
+			Comments: []botThreadComment{
+				{
+					Author:    copilotReviewBotLogin,
+					Body:      "Old feedback.",
+					CreatedAt: "2026-05-02T01:00:00Z",
+					CommitOID: "old",
+				},
+			},
+		},
+		{
+			ID:         "resolved-thread",
+			Path:       "resolved.go",
+			IsResolved: true,
+			Comments: []botThreadComment{
+				{
+					Author:    copilotReviewBotLogin,
+					Body:      "Resolved feedback.",
+					CreatedAt: "2026-05-03T02:00:00Z",
+					CommitOID: "head",
+				},
+			},
+		},
+	}
+
+	status := buildReviewBotStatus("copilot", copilotReviewBotLogin, "head", nil, threads)
+	if len(status.UnresolvedCurrentHeadThreads) != 1 {
+		t.Fatalf("UnresolvedCurrentHeadThreads len = %d, want 1", len(status.UnresolvedCurrentHeadThreads))
+	}
+	if status.UnresolvedCurrentHeadThreads[0].ID != "current-thread" {
+		t.Fatalf("Thread ID = %q, want current-thread", status.UnresolvedCurrentHeadThreads[0].ID)
+	}
+	if status.NextAction != "address, reply to, and resolve the unresolved current-head threads" {
+		t.Fatalf("NextAction = %q, want address guidance", status.NextAction)
+	}
+}
+
+func TestBuildBotReviewReportLocalHeadMatch(t *testing.T) {
+	t.Parallel()
+
+	report := buildBotReviewReport(12, "test", "abc", "abc", nil, nil)
+	if !report.LocalHeadMatchesPR {
+		t.Fatal("LocalHeadMatchesPR = false, want true")
+	}
+
+	report = buildBotReviewReport(12, "test", "abc", "def", nil, nil)
+	if report.LocalHeadMatchesPR {
+		t.Fatal("LocalHeadMatchesPR = true, want false")
+	}
+}

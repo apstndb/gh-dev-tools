@@ -8,6 +8,9 @@ Generic GitHub operations tool optimized for AI assistants.
 # Most common: Complete review workflow
 gh-helper reviews wait [PR] --request-review
 
+# Check whether Copilot/Gemini already reviewed the current PR head
+gh-helper reviews bot-status [PR]
+
 # Handle review feedback with structured output
 gh-helper reviews analyze [PR] | gojq --yaml-input '.threadsNeedingReply[]'
 gh-helper threads reply <THREAD_ID> --message "Fixed in commit abc123"
@@ -86,7 +89,11 @@ reviews wait [PR] --exclude-reviews   # Checks only
 
 # Monitoring and checking
 reviews check [PR]                    # One-time check (uses current branch if omitted)
+reviews bot-status [PR]               # Bot review status for the current PR head
 ```
+
+`reviews wait --request-review` checks the current PR head first and skips posting
+`/gemini review` when Gemini has already reviewed that commit.
 
 ### threads
 
@@ -416,8 +423,9 @@ gh-helper threads show PRRT_kwDONC6gMM5SU-GH
 gh-helper threads reply PRRT_kwDONC6gMM5SU-GH --commit-hash abc1234 \
   --message "Fixed the error handling as suggested"
 
-# 6. Request follow-up review if needed
-gh pr comment 306 --body "/gemini review"
+# 6. Check bot status and request follow-up review if needed
+gh-helper reviews bot-status 306
+gh-helper reviews wait 306 --request-review
 ```
 
 ### AI Assistant Usage
