@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-	
+
 	"golang.org/x/net/http2"
 )
 
@@ -30,7 +30,6 @@ var (
 	sharedHTTPClient *http.Client
 	clientOnce       sync.Once
 )
-
 
 // Repository IDs are immutable for the lifetime of a repository
 // - Renaming a repo preserves the ID
@@ -63,7 +62,7 @@ func getOptimizedHTTPClient() *http.Client {
 	return sharedHTTPClient
 }
 
-// PRInfo represents basic PR information  
+// PRInfo represents basic PR information
 type PRInfo struct {
 	Number int    `json:"number"`
 	Title  string `json:"title"`
@@ -108,7 +107,7 @@ func (c *GitHubClient) ValidateClient() error {
 	return nil
 }
 
-// getToken retrieves GitHub token from gh CLI  
+// getToken retrieves GitHub token from gh CLI
 // No caching needed - auth tokens don't invalidate during single command execution
 func getToken() (string, error) {
 	cmd := exec.Command("gh", "auth", "token")
@@ -214,7 +213,7 @@ func (c *GitHubClient) RunGraphQLQueryWithVariables(query string, variables map[
 }
 
 // CreatePRComment creates a comment on a pull request using GraphQL mutation
-// 
+//
 // NOTE: Attempted single-request optimization, but addComment is a root-level mutation
 // that requires a node ID, not accessible via nested repository context.
 // Keeping the 2-step approach: query PR ID → mutation addComment
@@ -290,6 +289,60 @@ func (c *GitHubClient) CreatePRComment(prNumber, body string) error {
 	return nil
 }
 
+// CreatePRConversationCommentREST creates a top-level PR conversation comment
+// through the REST issue-comments API. GitHub PR conversation comments are issue
+// comments, so this avoids GraphQL budget for simple slash-command triggers.
+func (c *GitHubClient) CreatePRConversationCommentREST(prNumber, body string) error {
+	if err := c.ValidateClient(); err != nil {
+		return err
+	}
+	prNumberInt, err := strconv.Atoi(prNumber)
+	if err != nil {
+		return fmt.Errorf("invalid PR number format: %w", err)
+	}
+
+	token, err := getToken()
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub token: %w", err)
+	}
+
+	payload, err := FormatJSON.Marshal(map[string]string{"body": body})
+	if err != nil {
+		return fmt.Errorf("failed to marshal REST comment request: %w", err)
+	}
+
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%d/comments", c.Owner, c.Repo, prNumberInt)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payload))
+	if err != nil {
+		return fmt.Errorf("failed to create REST comment request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("User-Agent", "spanner-mycli-dev-tools/1.0")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute REST comment request: %w", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Warn("failed to close response body", "url", resp.Request.URL.String(), "error", err)
+		}
+	}()
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(resp.Body); err != nil {
+		return fmt.Errorf("failed to read REST comment response body: %w", err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("REST comment request failed with status %d: %s", resp.StatusCode, buf.String())
+	}
+
+	return nil
+}
+
 // PRCreateOptions represents options for creating a pull request
 type PRCreateOptions struct {
 	Title string `json:"title"`
@@ -303,7 +356,7 @@ type PRCreateOptions struct {
 //
 // DESIGN RATIONALE: Instance-level vs Global Caching
 // - Typical usage: single repo (apstndb/spanner-mycli) per GitHubClient instance
-// - Simple struct fields avoid sync.Map complexity and type assertions  
+// - Simple struct fields avoid sync.Map complexity and type assertions
 // - Repository IDs are immutable for repo lifetime (no TTL needed)
 // - Follows YAGNI: complex global cache unnecessary for current usage patterns
 func (c *GitHubClient) getRepositoryID() (string, error) {
@@ -311,7 +364,7 @@ func (c *GitHubClient) getRepositoryID() (string, error) {
 	if c.repositoryID != "" {
 		return c.repositoryID, nil
 	}
-	
+
 	// Cache miss - fetch from API
 	repoQuery := `
 	query($owner: String!, $repo: String!) {
@@ -344,7 +397,7 @@ func (c *GitHubClient) getRepositoryID() (string, error) {
 
 	// Cache in instance fields (immutable for repository lifetime)
 	c.repositoryID = repoResponse.Data.Repository.ID
-	
+
 	return c.repositoryID, nil
 }
 
@@ -376,12 +429,12 @@ func (c *GitHubClient) CreatePR(opts PRCreateOptions) (*PRInfo, error) {
 	}`
 
 	mutationVariables := map[string]interface{}{
-		"repositoryId":  repositoryID,
-		"baseRefName":   opts.Base,
-		"headRefName":   opts.Head,
-		"title":         opts.Title,
-		"body":          opts.Body,
-		"draft":         opts.Draft,
+		"repositoryId": repositoryID,
+		"baseRefName":  opts.Base,
+		"headRefName":  opts.Head,
+		"title":        opts.Title,
+		"body":         opts.Body,
+		"draft":        opts.Draft,
 	}
 
 	data, err := c.RunGraphQLQueryWithVariables(mutation, mutationVariables)
@@ -412,12 +465,12 @@ func (c *GitHubClient) GetCurrentUser() (string, error) {
 	    login
 	  }
 	}`
-	
+
 	result, err := c.RunGraphQLQuery(query)
 	if err != nil {
 		return "", fmt.Errorf("failed to get current user: %w", err)
 	}
-	
+
 	var response struct {
 		Data struct {
 			Viewer struct {
@@ -425,11 +478,11 @@ func (c *GitHubClient) GetCurrentUser() (string, error) {
 			} `json:"viewer"`
 		} `json:"data"`
 	}
-	
+
 	if err := Unmarshal(result, &response); err != nil {
 		return "", fmt.Errorf("failed to parse user response: %w", err)
 	}
-	
+
 	return response.Data.Viewer.Login, nil
 }
 
@@ -570,7 +623,7 @@ func (c *GitHubClient) ResolveNumber(number int) (*NodeInfo, error) {
 
 // ParseInputFormat parses various input formats for issues/PRs
 type InputFormat struct {
-	Type   string // "issue", "pr", or "auto" 
+	Type   string // "issue", "pr", or "auto"
 	Number int
 }
 
@@ -594,14 +647,14 @@ func ParseInput(input string) (*InputFormat, error) {
 				return nil, fmt.Errorf("invalid issue number in '%s': %w", input, err)
 			}
 			return &InputFormat{Type: "issue", Number: number}, nil
-			
+
 		case "pull", "pr":
 			number, err := strconv.Atoi(numberStr)
 			if err != nil {
 				return nil, fmt.Errorf("invalid PR number in '%s': %w", input, err)
 			}
 			return &InputFormat{Type: "pr", Number: number}, nil
-			
+
 		default:
 			// Has "/" but unknown prefix - treat as invalid
 			return nil, fmt.Errorf("unknown format '%s': use 'issues/N', 'pull/N', 'pr/N', or plain number", input)
@@ -645,14 +698,14 @@ func (c *GitHubClient) ResolvePRNumber(input string) (int, string, error) {
 		if err != nil {
 			return 0, "", fmt.Errorf("failed to find PRs for explicit issue #%d: %w", format.Number, err)
 		}
-		
+
 		// Look for open PR
 		for _, pr := range prs {
 			if pr.State == "OPEN" {
 				return pr.Number, fmt.Sprintf("Resolved explicit issue #%d to open PR #%d: %s", format.Number, pr.Number, pr.Title), nil
 			}
 		}
-		
+
 		if len(prs) > 0 {
 			return 0, "", fmt.Errorf("explicit issue #%d has %d associated PR(s) but none are open", format.Number, len(prs))
 		}
@@ -674,14 +727,14 @@ func (c *GitHubClient) ResolvePRNumber(input string) (int, string, error) {
 			if err != nil {
 				return 0, "", fmt.Errorf("failed to find PRs for auto-detected issue #%d: %w", node.Number, err)
 			}
-			
+
 			// Look for open PR
 			for _, pr := range prs {
 				if pr.State == "OPEN" {
 					return pr.Number, fmt.Sprintf("Auto-detected issue #%d → open PR #%d: %s", node.Number, pr.Number, pr.Title), nil
 				}
 			}
-			
+
 			if len(prs) > 0 {
 				return 0, "", fmt.Errorf("auto-detected issue #%d has %d associated PR(s) but none are open", node.Number, len(prs))
 			}
@@ -859,7 +912,7 @@ func (c *GitHubClient) SearchItemsByTitle(repoID string, re *regexp.Regexp) ([]I
 	}
 
 	var items []ItemToLabel
-	
+
 	// Filter issues by regex
 	for _, issue := range response.Data.Repository.Issues.Nodes {
 		if re.MatchString(issue.Title) {

@@ -699,8 +699,8 @@ func requestGeminiReviewForCurrentHead(client *GitHubClient, prNumber string) er
 		)
 	}
 
-	fmt.Printf("📝 Requesting Gemini review for PR #%s...\n", prNumber)
-	if err := client.CreatePRComment(prNumber, "/gemini review"); err != nil {
+	fmt.Printf("📝 Requesting Gemini review for PR #%s via REST comment...\n", prNumber)
+	if err := client.CreatePRConversationCommentREST(prNumber, "/gemini review"); err != nil {
 		return fmt.Errorf("failed to request Gemini review: %w", err)
 	}
 	fmt.Println("✅ Gemini review requested")

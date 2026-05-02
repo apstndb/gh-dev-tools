@@ -93,7 +93,9 @@ reviews bot-status [PR]               # Bot review status for the current PR hea
 ```
 
 `reviews wait --request-review` checks the current PR head first and skips posting
-`/gemini review` when Gemini has already reviewed that commit.
+`/gemini review` when Gemini has already reviewed that commit. When it does
+request Gemini, it posts the slash-command through the REST issue-comments API
+to avoid spending GraphQL budget on a top-level PR conversation comment.
 
 ### threads
 
