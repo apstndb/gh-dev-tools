@@ -663,33 +663,39 @@ func normalizeBotLogin(login string) string {
 }
 
 func requestGeminiReviewForCurrentHead(client *GitHubClient, prNumber string) error {
-	report, err := client.GetBotReviewReport(prNumber)
+	prNumberInt, err := strconv.Atoi(prNumber)
+	if err != nil {
+		return fmt.Errorf("invalid PR number format: %w", err)
+	}
+
+	metadata, err := client.fetchBotReviewMetadata(prNumberInt)
 	if err != nil {
 		return err
 	}
 
-	for _, bot := range report.Bots {
-		if bot.Login != geminiReviewBotLogin {
-			continue
-		}
-		if bot.ReviewedCurrentHead {
-			fmt.Printf("✅ Gemini already reviewed PR head %s; skipping duplicate request\n", report.PRHeadOID)
-			return nil
-		}
-		if bot.ReviewDataIncomplete {
-			return fmt.Errorf("cannot safely request Gemini review because bot review data is incomplete; inspect bot-status output or request /gemini review manually")
-		}
+	geminiStatus := buildReviewBotStatus(
+		"gemini",
+		geminiReviewBotLogin,
+		metadata.PRHeadOID,
+		metadata.Reviews,
+		nil,
+		botStatusCompleteness{ReviewsTruncated: metadata.ReviewsTruncated},
+	)
+	if geminiStatus.ReviewedCurrentHead {
+		fmt.Printf("✅ Gemini already reviewed PR head %s; skipping duplicate request\n", metadata.PRHeadOID)
+		return nil
 	}
 
-	if report.ReviewsTruncated {
+	if geminiStatus.ReviewDataIncomplete {
 		return fmt.Errorf("cannot safely request Gemini review because review history is incomplete; inspect bot-status output or request /gemini review manually")
 	}
 
-	if report.LocalHeadOID != "" && report.PRHeadOID != "" && !report.LocalHeadMatchesPR {
+	localHeadOID := localGitHeadOID()
+	if localHeadOID != "" && metadata.PRHeadOID != "" && localHeadOID != metadata.PRHeadOID {
 		fmt.Printf(
 			"⚠️  Local HEAD %s differs from PR head %s; requesting review for the pushed PR head\n",
-			report.LocalHeadOID,
-			report.PRHeadOID,
+			localHeadOID,
+			metadata.PRHeadOID,
 		)
 	}
 
