@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestBuildReviewBotStatusGeminiIgnoresSummaryReview(t *testing.T) {
 	t.Parallel()
@@ -193,5 +197,44 @@ func TestBuildReviewBotStatusTruncatedReviewsWithoutCurrentHeadIsIncomplete(t *t
 	}
 	if !status.ReviewDataIncomplete {
 		t.Fatal("ReviewDataIncomplete = false, want true")
+	}
+}
+
+func TestResolveGitDirFromFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	gitDir := filepath.Join(root, "actual.git")
+	if err := os.Mkdir(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dotGit := filepath.Join(root, ".git")
+	if err := os.WriteFile(dotGit, []byte("gitdir: actual.git\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := resolveGitDir(dotGit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != gitDir {
+		t.Fatalf("resolveGitDir() = %q, want %q", got, gitDir)
+	}
+}
+
+func TestReadGitHeadOIDFromPackedRef(t *testing.T) {
+	t.Parallel()
+
+	gitDir := t.TempDir()
+	const oid = "0123456789abcdef0123456789abcdef01234567"
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "packed-refs"), []byte(oid+" refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := readGitHeadOID(gitDir); got != oid {
+		t.Fatalf("readGitHeadOID() = %q, want %q", got, oid)
 	}
 }

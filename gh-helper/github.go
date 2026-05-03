@@ -308,7 +308,7 @@ func (c *GitHubClient) CreatePRConversationCommentREST(prNumber, body string) er
 		return fmt.Errorf("REST comment auth failed: %w", err)
 	}
 
-	payload, err := FormatJSON.Marshal(map[string]string{"body": body})
+	payload, err := json.Marshal(map[string]string{"body": body})
 	if err != nil {
 		return fmt.Errorf("failed to marshal REST comment request: %w", err)
 	}

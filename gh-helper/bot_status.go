@@ -4,7 +4,8 @@ import (
 	_ "embed"
 	"fmt"
 	"log/slog"
-	"os/exec"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -670,18 +671,127 @@ func geminiReviewedCurrentHead(metadata *botReviewMetadata) bool {
 }
 
 func localGitHeadOID() string {
-	gitPath, err := exec.LookPath("git")
+	dir, err := os.Getwd()
 	if err != nil {
-		slog.Debug("git command not found, cannot get local HEAD OID", "error", err)
+		slog.Debug("failed to get working directory, cannot get local HEAD OID", "error", err)
 		return ""
 	}
-	cmd := exec.Command(gitPath, "rev-parse", "HEAD")
-	output, err := cmd.Output()
+	for {
+		gitDir, err := resolveGitDir(filepath.Join(dir, ".git"))
+		if err == nil {
+			return readGitHeadOID(gitDir)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			slog.Debug("git directory not found, cannot get local HEAD OID", "error", err)
+			return ""
+		}
+		dir = parent
+	}
+}
+
+func resolveGitDir(dotGitPath string) (string, error) {
+	info, err := os.Stat(dotGitPath)
 	if err != nil {
-		slog.Debug("failed to get local HEAD OID", "error", err)
+		return "", err
+	}
+	if info.IsDir() {
+		return dotGitPath, nil
+	}
+
+	data, err := os.ReadFile(dotGitPath)
+	if err != nil {
+		return "", err
+	}
+	gitDir, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
+	if !ok {
+		return "", fmt.Errorf("%s is not a gitdir file", dotGitPath)
+	}
+	gitDir = strings.TrimSpace(gitDir)
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(filepath.Dir(dotGitPath), gitDir)
+	}
+	return filepath.Clean(gitDir), nil
+}
+
+func readGitHeadOID(gitDir string) string {
+	headData, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	if err != nil {
+		slog.Debug("failed to read git HEAD", "gitDir", gitDir, "error", err)
 		return ""
 	}
-	return strings.TrimSpace(string(output))
+	head := strings.TrimSpace(string(headData))
+	if isGitOID(head) {
+		return head
+	}
+
+	ref, ok := strings.CutPrefix(head, "ref:")
+	if !ok {
+		slog.Debug("git HEAD has unsupported format", "head", head)
+		return ""
+	}
+	ref = strings.TrimSpace(ref)
+	for _, root := range gitRefRoots(gitDir) {
+		if oid := readGitRef(root, ref); oid != "" {
+			return oid
+		}
+	}
+	slog.Debug("failed to resolve git HEAD ref", "gitDir", gitDir, "ref", ref)
+	return ""
+}
+
+func gitRefRoots(gitDir string) []string {
+	roots := []string{gitDir}
+	commondirData, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+	if err != nil {
+		return roots
+	}
+	commonDir := strings.TrimSpace(string(commondirData))
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(gitDir, commonDir)
+	}
+	commonDir = filepath.Clean(commonDir)
+	if commonDir != gitDir {
+		roots = append(roots, commonDir)
+	}
+	return roots
+}
+
+func readGitRef(root string, ref string) string {
+	refData, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(ref)))
+	if err == nil {
+		oid := strings.TrimSpace(string(refData))
+		if isGitOID(oid) {
+			return oid
+		}
+	}
+
+	packedRefs, err := os.ReadFile(filepath.Join(root, "packed-refs"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(packedRefs), "\n") {
+		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {
+			continue
+		}
+		oid, packedRef, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if ok && packedRef == ref && isGitOID(oid) {
+			return oid
+		}
+	}
+	return ""
+}
+
+func isGitOID(value string) bool {
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	for _, r := range value {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') && (r < 'A' || r > 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func truncateForStatus(body string, maxLen int) string {
