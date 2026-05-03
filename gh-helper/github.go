@@ -305,7 +305,7 @@ func (c *GitHubClient) CreatePRConversationCommentREST(prNumber, body string) er
 
 	token, err := getToken()
 	if err != nil {
-		return fmt.Errorf("failed to get GitHub token: %w", err)
+		return fmt.Errorf("REST comment auth failed: %w", err)
 	}
 
 	payload, err := FormatJSON.Marshal(map[string]string{"body": body})

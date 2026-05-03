@@ -249,6 +249,13 @@ func (c *GitHubClient) GetBotReviewReport(prNumber string) (*BotReviewReport, er
 }
 
 func (c *GitHubClient) fetchBotReviewMetadata(prNumberInt int) (*botReviewMetadata, error) {
+	return c.fetchBotReviewMetadataUntil(prNumberInt, nil)
+}
+
+func (c *GitHubClient) fetchBotReviewMetadataUntil(
+	prNumberInt int,
+	shouldStop func(*botReviewMetadata) bool,
+) (*botReviewMetadata, error) {
 	metadata := &botReviewMetadata{}
 	reviewBefore := ""
 	for page := 0; ; page++ {
@@ -289,6 +296,9 @@ func (c *GitHubClient) fetchBotReviewMetadata(prNumberInt int) (*botReviewMetada
 				CreatedAt: review.CreatedAt,
 				CommitOID: review.Commit.OID,
 			})
+		}
+		if shouldStop != nil && shouldStop(metadata) {
+			return metadata, nil
 		}
 
 		pageInfo := pr.Reviews.PageInfo
@@ -606,7 +616,7 @@ func requestGeminiReviewForCurrentHead(client *GitHubClient, prNumber string) er
 		return fmt.Errorf("invalid PR number format: %w", err)
 	}
 
-	metadata, err := client.fetchBotReviewMetadata(prNumberInt)
+	metadata, err := client.fetchBotReviewMetadataUntil(prNumberInt, geminiReviewedCurrentHead)
 	if err != nil {
 		return err
 	}
@@ -643,6 +653,20 @@ func requestGeminiReviewForCurrentHead(client *GitHubClient, prNumber string) er
 	}
 	fmt.Println("✅ Gemini review requested")
 	return nil
+}
+
+func geminiReviewedCurrentHead(metadata *botReviewMetadata) bool {
+	if metadata.PRHeadOID == "" {
+		return false
+	}
+	return buildReviewBotStatus(
+		"gemini",
+		geminiReviewBotLogin,
+		metadata.PRHeadOID,
+		metadata.Reviews,
+		nil,
+		botStatusCompleteness{},
+	).ReviewedCurrentHead
 }
 
 func localGitHeadOID() string {
