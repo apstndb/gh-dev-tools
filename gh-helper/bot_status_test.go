@@ -128,6 +128,66 @@ func TestBuildReviewBotStatusCurrentHeadThreads(t *testing.T) {
 	}
 }
 
+func TestBuildReviewBotStatusUsesFirstThreadCommentForBotAttribution(t *testing.T) {
+	t.Parallel()
+
+	threads := []botThreadNode{
+		{
+			ID:         "human-thread-with-bot-reply",
+			Path:       "human.go",
+			IsResolved: false,
+			Comments: []botThreadComment{
+				{
+					Author:    "apstndb",
+					Body:      "Human feedback.",
+					CreatedAt: "2026-05-03T01:00:00Z",
+					CommitOID: "head",
+				},
+				{
+					Author:    copilotReviewBotLogin,
+					Body:      "Bot follow-up should not own this thread.",
+					CreatedAt: "2026-05-03T01:01:00Z",
+					CommitOID: "head",
+				},
+			},
+		},
+		{
+			ID:         "bot-thread-with-human-reply",
+			Path:       "bot.go",
+			IsResolved: false,
+			Comments: []botThreadComment{
+				{
+					Author:    copilotReviewBotLogin,
+					Body:      "Bot feedback.",
+					CreatedAt: "2026-05-03T02:00:00Z",
+					CommitOID: "head",
+				},
+				{
+					Author:    "apstndb",
+					Body:      "Human reply should not replace the thread origin.",
+					CreatedAt: "2026-05-03T02:01:00Z",
+					CommitOID: "head",
+				},
+			},
+		},
+	}
+
+	status := buildReviewBotStatus("copilot", copilotReviewBotLogin, "head", nil, threads, botStatusCompleteness{})
+	if len(status.UnresolvedCurrentHeadThreads) != 1 {
+		t.Fatalf("UnresolvedCurrentHeadThreads len = %d, want 1", len(status.UnresolvedCurrentHeadThreads))
+	}
+	thread := status.UnresolvedCurrentHeadThreads[0]
+	if thread.ID != "bot-thread-with-human-reply" {
+		t.Fatalf("Thread ID = %q, want bot-thread-with-human-reply", thread.ID)
+	}
+	if thread.Author != copilotReviewBotLogin {
+		t.Fatalf("Thread author = %q, want %q", thread.Author, copilotReviewBotLogin)
+	}
+	if thread.BodyPreview != "Bot feedback." {
+		t.Fatalf("BodyPreview = %q, want first bot comment body", thread.BodyPreview)
+	}
+}
+
 func TestBuildBotReviewReportLocalHeadMatch(t *testing.T) {
 	t.Parallel()
 

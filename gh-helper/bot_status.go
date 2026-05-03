@@ -527,15 +527,12 @@ func unresolvedBotThreads(login string, headOID string, threads []botThreadNode)
 		if thread.IsResolved {
 			continue
 		}
-
-		var botComment *botThreadComment
-		for i := range thread.Comments {
-			comment := &thread.Comments[i]
-			if botLoginMatches(comment.Author, login) {
-				botComment = comment
-			}
+		if len(thread.Comments) == 0 {
+			continue
 		}
-		if botComment == nil {
+
+		firstComment := thread.Comments[0]
+		if !botLoginMatches(firstComment.Author, login) {
 			continue
 		}
 
@@ -544,12 +541,12 @@ func unresolvedBotThreads(login string, headOID string, threads []botThreadNode)
 			Path:        thread.Path,
 			Line:        thread.Line,
 			IsOutdated:  thread.IsOutdated,
-			Author:      botComment.Author,
-			CommitOID:   botComment.CommitOID,
-			CreatedAt:   botComment.CreatedAt,
-			BodyPreview: truncateForStatus(botComment.Body, 160),
+			Author:      firstComment.Author,
+			CommitOID:   firstComment.CommitOID,
+			CreatedAt:   firstComment.CreatedAt,
+			BodyPreview: truncateForStatus(firstComment.Body, 160),
 		}
-		if botComment.CommitOID == headOID {
+		if firstComment.CommitOID == headOID {
 			currentHeadSummaries = append(currentHeadSummaries, summary)
 			continue
 		}
