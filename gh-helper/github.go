@@ -17,6 +17,8 @@ import (
 	"golang.org/x/net/http2"
 )
 
+const githubAPIUserAgent = "gh-dev-tools/1.0"
+
 // GitHubClient provides common GitHub operations with token caching
 type GitHubClient struct {
 	Owner        string
@@ -176,7 +178,7 @@ func (c *GitHubClient) RunGraphQLQueryWithVariables(query string, variables map[
 
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "spanner-mycli-dev-tools/1.0")
+	req.Header.Set("User-Agent", githubAPIUserAgent)
 
 	// Execute request
 	resp, err := c.httpClient.Do(req)
@@ -320,7 +322,7 @@ func (c *GitHubClient) CreatePRConversationCommentREST(prNumber, body string) er
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	req.Header.Set("User-Agent", "spanner-mycli-dev-tools/1.0")
+	req.Header.Set("User-Agent", githubAPIUserAgent)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

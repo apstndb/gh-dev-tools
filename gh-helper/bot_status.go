@@ -708,7 +708,11 @@ func requestGeminiReviewForCurrentHead(client *GitHubClient, prNumber string) er
 }
 
 func localGitHeadOID() string {
-	cmd := exec.Command("git", "rev-parse", "HEAD")
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		return ""
+	}
+	cmd := exec.Command(gitPath, "rev-parse", "HEAD")
 	output, err := cmd.Output()
 	if err != nil {
 		return ""
