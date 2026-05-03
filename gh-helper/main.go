@@ -16,8 +16,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-
-
 // Helper functions for common patterns
 
 // resolvePRNumberFromArgs provides backwards compatibility wrapper
@@ -26,19 +24,19 @@ func resolvePRNumberFromArgs(args []string, client *GitHubClient) (string, error
 	if len(args) > 0 {
 		input = args[0]
 	}
-	
+
 	prNumberInt, _, err := client.ResolvePRNumber(input)
 	if err != nil {
 		return "", FetchError("PR number", err)
 	}
-	
+
 	// Suppress informational messages for structured output (YAML/JSON by default)
 	// These messages are for human-readable context only
-	
+
 	return fmt.Sprintf("%d", prNumberInt), nil
 }
 
-// parseTimeout provides backwards compatibility wrapper  
+// parseTimeout provides backwards compatibility wrapper
 func parseTimeout() (time.Duration, error) {
 	return ParseTimeoutString(timeoutStr)
 }
@@ -50,13 +48,13 @@ func calculateEffectiveTimeout() (time.Duration, string, error) {
 	if err != nil {
 		return 0, "", err
 	}
-	
+
 	// Show warning if timeout was constrained
 	if result.Requested > 0 && result.Effective != result.Requested {
-		WarningMsg("Requested timeout (%v) exceeds Claude Code limit. Using %v.", 
+		WarningMsg("Requested timeout (%v) exceeds Claude Code limit. Using %v.",
 			result.Requested, result.Effective).Print()
 	}
-	
+
 	return result.Effective, result.Display, nil
 }
 
@@ -88,7 +86,6 @@ var threadsCmd = &cobra.Command{
 	Short: "GitHub review thread operations",
 }
 
-
 var waitReviewsCmd = NewOperationalCommand(
 	"wait [pr-number]",
 	"Wait for both reviews and PR checks (default behavior)",
@@ -113,7 +110,6 @@ Default timeout is 5 minutes, configurable with --timeout flag.`,
 )
 
 // waitAllCmd removed - redundant with waitReviewsCmd which supports the same functionality
-
 
 var replyThreadsCmd = NewOperationalCommand(
 	"reply <thread-id> [<thread-id>...]",
@@ -166,7 +162,7 @@ Examples:
 
 var showThreadCmd = &cobra.Command{
 	Use:   "show <thread-id> [<thread-id>...]",
-	Short: "Show detailed view of one or more review threads", 
+	Short: "Show detailed view of one or more review threads",
 	Long: `Show detailed view of review threads including all comments.
 
 This command accepts one or more thread IDs, allowing you to inspect multiple
@@ -223,7 +219,7 @@ This command submits any pending review comments that haven't been published yet
 Pending comments are created when replying to threads with --no-submit flag or
 when using older tools that don't auto-submit reviews.
 
-` + prNumberArgsHelp + `
+`+prNumberArgsHelp+`
 
 Examples:
   # Submit all pending comments for current branch's PR
@@ -275,7 +271,7 @@ func init() {
 	replyThreadsCmd.Args = cobra.MinimumNArgs(1)
 	// showThreadCmd already configured with MinimumNArgs(1) in command definition
 	resolveThreadCmd.Args = cobra.MinimumNArgs(1)
-	
+
 	// Configure flags
 	rootCmd.PersistentFlags().StringVar(&owner, "owner", DefaultOwner, "GitHub repository owner")
 	rootCmd.PersistentFlags().StringVar(&repo, "repo", DefaultRepo, "GitHub repository name")
@@ -284,7 +280,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("json", false, "Output JSON format (alias for --format=json)")
 	rootCmd.PersistentFlags().Bool("yaml", false, "Output YAML format (alias for --format=yaml)")
 	rootCmd.PersistentFlags().String("jq", "", "Apply jq query to filter/transform output")
-	
+
 	// Mark all format flags as mutually exclusive
 	rootCmd.MarkFlagsMutuallyExclusive("format", "json")
 	rootCmd.MarkFlagsMutuallyExclusive("format", "yaml")
@@ -309,7 +305,7 @@ func init() {
 	showThreadCmd.Flags().Bool("exclude-urls", false, "Exclude URLs from output")
 
 	// Add subcommands
-	reviewsCmd.AddCommand(fetchReviewsCmd, waitReviewsCmd)
+	reviewsCmd.AddCommand(fetchReviewsCmd, waitReviewsCmd, botStatusCmd)
 	threadsCmd.AddCommand(showThreadCmd, replyThreadsCmd, resolveThreadCmd, submitThreadsCmd)
 	rootCmd.AddCommand(reviewsCmd, threadsCmd, labelsCmd, issuesCmd, releasesCmd, nodeIDCmd)
 }
@@ -319,13 +315,12 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelWarn,
 	})))
-	
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
-
 
 // getCurrentUser returns the current authenticated GitHub username
 func getCurrentUser() (string, error) {
@@ -341,10 +336,10 @@ type ReviewState struct {
 
 // DetailedStatus represents comprehensive PR status data
 type DetailedStatus struct {
-	PR       string           `json:"pr"`
-	Title    string           `json:"title"`
-	Timeline TimelineInfo     `json:"timeline"`
-	Checks   StatusChecks     `json:"checks"`
+	PR       string       `json:"pr"`
+	Title    string       `json:"title"`
+	Timeline TimelineInfo `json:"timeline"`
+	Checks   StatusChecks `json:"checks"`
 }
 
 // TimelineInfo represents important timestamps
@@ -356,11 +351,11 @@ type TimelineInfo struct {
 
 // StatusChecks represents all status checks
 type StatusChecks struct {
-	ReviewThreads   ThreadStatus         `json:"reviewThreads"`
-	Reviews         ReviewApprovalStatus `json:"reviews"`
-	CIStatus        CICheckStatus        `json:"ciStatus"`
-	Mergeability    MergeConflictStatus  `json:"mergeability"`
-	GeminiComments  CommentAnalysis      `json:"geminiComments,omitempty"`
+	ReviewThreads  ThreadStatus         `json:"reviewThreads"`
+	Reviews        ReviewApprovalStatus `json:"reviews"`
+	CIStatus       CICheckStatus        `json:"ciStatus"`
+	Mergeability   MergeConflictStatus  `json:"mergeability"`
+	GeminiComments CommentAnalysis      `json:"geminiComments,omitempty"`
 }
 
 // ThreadStatus represents review thread status
@@ -395,10 +390,10 @@ type MergeConflictStatus struct {
 
 // CommentAnalysis represents PR comment analysis
 type CommentAnalysis struct {
-	HasSummaryComment    bool             `json:"hasSummaryComment"`
-	HasReviewComment     bool             `json:"hasReviewComment"`
-	LastCommentIsSummary bool             `json:"lastCommentIsSummary"`
-	Comments             []PRCommentInfo  `json:"comments"`
+	HasSummaryComment    bool            `json:"hasSummaryComment"`
+	HasReviewComment     bool            `json:"hasReviewComment"`
+	LastCommentIsSummary bool            `json:"lastCommentIsSummary"`
+	Comments             []PRCommentInfo `json:"comments"`
 }
 
 // PRCommentInfo represents a PR comment
@@ -412,17 +407,17 @@ type PRCommentInfo struct {
 func loadReviewState(prNumber string) (*ReviewState, error) {
 	stateDir := filepath.Join(GetCacheDir(), "reviews")
 	lastReviewFile := filepath.Join(stateDir, fmt.Sprintf("pr-%s-last-review.json", prNumber))
-	
+
 	data, err := os.ReadFile(lastReviewFile)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var state ReviewState
 	if err := Unmarshal(data, &state); err != nil {
 		return nil, err
 	}
-	
+
 	return &state, nil
 }
 
@@ -430,20 +425,20 @@ func loadReviewState(prNumber string) (*ReviewState, error) {
 func saveReviewState(prNumber string, state ReviewState) error {
 	stateDir := filepath.Join(GetCacheDir(), "reviews")
 	lastReviewFile := filepath.Join(stateDir, fmt.Sprintf("pr-%s-last-review.json", prNumber))
-	
+
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
 		return fmt.Errorf("failed to create state directory: %w", err)
 	}
-	
+
 	data, err := yaml.MarshalWithOptions(state, yaml.UseJSONMarshaler())
 	if err != nil {
 		return fmt.Errorf("failed to marshal state: %w", err)
 	}
-	
+
 	if err := os.WriteFile(lastReviewFile, data, 0644); err != nil {
 		return fmt.Errorf("failed to write state file: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -453,14 +448,14 @@ func hasNewReviews(reviews []ReviewFields, lastState *ReviewState) bool {
 		// No previous state, any review is "new"
 		return len(reviews) > 0
 	}
-	
+
 	for _, review := range reviews {
 		if review.CreatedAt > lastState.CreatedAt ||
 			(review.CreatedAt == lastState.CreatedAt && review.ID != lastState.ID) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -469,7 +464,7 @@ func hasNewReviews(reviews []ReviewFields, lastState *ReviewState) bool {
 //
 // Key findings from anthropics/claude-code#1039, anthropics/claude-code#1216, anthropics/claude-code#1717:
 // - BASH_MAX_TIMEOUT_MS: Upper limit for explicit timeout requests (our use case)
-// - BASH_DEFAULT_TIMEOUT_MS: Default timeout when no explicit timeout specified  
+// - BASH_DEFAULT_TIMEOUT_MS: Default timeout when no explicit timeout specified
 // - Claude Code defaults to 2-minute hard limit when no env vars are set
 // - Environment variables are read from ~/.claude/settings.json or project .claude/settings.json
 // - Project settings should be committed, local settings (.claude/settings.local.json) should not
@@ -481,7 +476,7 @@ func checkClaudeCodeEnvironment() (time.Duration, bool) {
 		fmt.Printf("🔧 Claude Code BASH_MAX_TIMEOUT_MS detected: %v\n", maxTimeout)
 		return maxTimeout, true
 	}
-	
+
 	// Check for BASH_DEFAULT_TIMEOUT_MS (default when no timeout specified)
 	if defaultTimeout, err := ParseClaudeCodeTimeoutEnv("BASH_DEFAULT_TIMEOUT_MS"); err != nil {
 		fmt.Printf("⚠️  %v\n", err)
@@ -489,7 +484,7 @@ func checkClaudeCodeEnvironment() (time.Duration, bool) {
 		fmt.Printf("🔧 Claude Code BASH_DEFAULT_TIMEOUT_MS detected: %v\n", defaultTimeout)
 		return defaultTimeout, true
 	}
-	
+
 	return 0, false
 }
 
@@ -568,42 +563,42 @@ func performAsyncReviewCheck(client *GitHubClient, prNumber string) error {
 // performDetailedStatusCheck performs comprehensive status check including PR comments
 func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumber string) error {
 	StatusMsg("Collecting detailed status for PR #%s...", prNumber).Print()
-	
+
 	// Convert PR number to integer
 	prNumberInt, err := strconv.Atoi(prNumber)
 	if err != nil {
 		return fmt.Errorf("invalid PR number format: %w", err)
 	}
-	
+
 	// Fetch comprehensive PR data
 	config := NewPRQueryConfig(owner, repo, prNumberInt).
 		ForReviewsAndStatus().
 		WithThreads().
 		WithComments()
-	
+
 	response, err := client.FetchPRData(config)
 	if err != nil {
 		return fmt.Errorf("failed to fetch PR data: %w", err)
 	}
-	
+
 	// Build detailed status
 	status := DetailedStatus{
 		PR:    prNumber,
 		Title: response.GetTitle(),
 	}
-	
+
 	// Timeline information
 	status.Timeline = TimelineInfo{
 		PRCreated: response.GetCreatedAt(),
 		LastPush:  response.GetLastPushAt(),
 	}
-	
+
 	// Review threads status
 	threads := response.GetThreads()
 	resolved := 0
 	unresolved := 0
 	var lastResolvedTime string
-	
+
 	for _, thread := range threads {
 		if thread.IsResolved {
 			resolved++
@@ -618,9 +613,9 @@ func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumb
 			unresolved++
 		}
 	}
-	
+
 	status.Timeline.LastReviewThreadResolved = lastResolvedTime
-	
+
 	threadStatus := "pass"
 	if unresolved > 0 {
 		threadStatus = "fail"
@@ -630,12 +625,12 @@ func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumb
 		Resolved:   resolved,
 		Unresolved: unresolved,
 	}
-	
+
 	// Reviews status
 	reviews := response.GetReviews()
 	approved := 0
 	changesRequested := 0
-	
+
 	// Track latest review per author
 	latestReviews := make(map[string]ReviewFields)
 	for _, review := range reviews {
@@ -643,7 +638,7 @@ func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumb
 			latestReviews[review.Author.Login] = review
 		}
 	}
-	
+
 	// Count current state
 	for _, review := range latestReviews {
 		switch review.State {
@@ -653,26 +648,26 @@ func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumb
 			changesRequested++
 		}
 	}
-	
+
 	// TODO: Get required reviews from branch protection rules
 	// For now, assume 1 required
 	required := 1
-	
+
 	reviewStatus := "pass"
 	if changesRequested > 0 || approved < required {
 		reviewStatus = "fail"
 	}
-	
+
 	status.Checks.Reviews = ReviewApprovalStatus{
 		Status:           reviewStatus,
 		Required:         required,
 		Approved:         approved,
 		ChangesRequested: changesRequested,
 	}
-	
+
 	// Get merge status first as it's needed for CI status determination
 	mergeable, mergeState := response.GetMergeStatus()
-	
+
 	// CI Status
 	statusCheckRollup := response.GetStatusCheckRollup()
 	if statusCheckRollup != nil {
@@ -680,12 +675,12 @@ func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumb
 		var passed []string
 		var failed []string
 		var required []string
-		
+
 		// Extract check information from contexts
 		for _, context := range statusCheckRollup.Contexts.Nodes {
 			contextName := ""
 			contextState := ""
-			
+
 			switch context.Typename {
 			case "StatusContext":
 				contextName = context.Context
@@ -708,12 +703,12 @@ func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumb
 					contextState = "PENDING"
 				}
 			}
-			
+
 			if contextName != "" {
 				if context.IsRequired {
 					required = append(required, contextName)
 				}
-				
+
 				switch contextState {
 				case "SUCCESS":
 					passed = append(passed, contextName)
@@ -729,7 +724,7 @@ func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumb
 				}
 			}
 		}
-		
+
 		status.Checks.CIStatus = CICheckStatus{
 			Status:   ciStatus,
 			Required: required,
@@ -739,12 +734,12 @@ func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumb
 	} else {
 		// No statusCheckRollup - determine if checks are pending or not configured
 		ciStatus := "pass"
-		
+
 		// Check merge state to determine if checks are pending
 		if mergeState == "BLOCKED" || mergeState == "UNKNOWN" {
 			ciStatus = "pending"
 		}
-		
+
 		status.Checks.CIStatus = CICheckStatus{
 			Status:   ciStatus,
 			Required: []string{},
@@ -752,11 +747,11 @@ func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumb
 			Failed:   []string{},
 		}
 	}
-	
+
 	// Mergeability (already fetched above)
 	mergeStatus := "pass"
 	conflicts := false
-	
+
 	switch mergeable {
 	case "CONFLICTING":
 		mergeStatus = "fail"
@@ -764,20 +759,20 @@ func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumb
 	case "UNKNOWN":
 		mergeStatus = "pending"
 	}
-	
+
 	status.Checks.Mergeability = MergeConflictStatus{
 		Status:    mergeStatus,
 		Conflicts: conflicts,
 		State:     mergeState,
 	}
-	
+
 	// PR Comments Analysis
 	comments := response.GetComments()
 	if len(comments) > 0 {
 		analysis := CommentAnalysis{
 			Comments: []PRCommentInfo{},
 		}
-		
+
 		for _, comment := range comments {
 			// Categorize comment
 			commentType := "comment"
@@ -788,67 +783,67 @@ func performDetailedStatusCheck(cmd *cobra.Command, client *GitHubClient, prNumb
 				commentType = "review"
 				analysis.HasReviewComment = true
 			}
-			
+
 			analysis.Comments = append(analysis.Comments, PRCommentInfo{
 				Type:      commentType,
 				Timestamp: comment.CreatedAt,
 				Body:      comment.Body,
 			})
 		}
-		
+
 		// Check if last comment is summary
 		if len(analysis.Comments) > 0 {
 			lastComment := analysis.Comments[len(analysis.Comments)-1]
 			analysis.LastCommentIsSummary = lastComment.Type == "summary"
 		}
-		
+
 		status.Checks.GeminiComments = analysis
 	}
-	
+
 	// Output the detailed status
 	output := map[string]interface{}{
 		"detailedStatus": status,
 	}
-	
+
 	return EncodeOutputWithCmd(cmd, output)
 }
 
 // performRequestSummaryAndWait requests a Gemini summary and waits for it
 func performRequestSummaryAndWait(cmd *cobra.Command, client *GitHubClient, prNumber string) error {
 	fmt.Printf("📝 Requesting Gemini summary for PR #%s...\n", prNumber)
-	
+
 	// Post /gemini summary comment
 	if err := client.CreatePRComment(prNumber, "/gemini summary"); err != nil {
 		return fmt.Errorf("failed to request Gemini summary: %w", err)
 	}
-	
+
 	fmt.Println("✅ Gemini summary requested")
 	fmt.Println("⏳ Waiting for summary to be posted...")
-	
+
 	// Convert PR number to integer
 	prNumberInt, err := strconv.Atoi(prNumber)
 	if err != nil {
 		return fmt.Errorf("invalid PR number format: %w", err)
 	}
-	
+
 	// Calculate timeout
 	effectiveTimeout, timeoutDisplay, err := calculateEffectiveTimeout()
 	if err != nil {
 		return err
 	}
-	
+
 	fmt.Printf("🔄 Waiting for summary (timeout: %s)...\n", timeoutDisplay)
-	
+
 	// Get initial comments count
 	config := NewPRQueryConfig(owner, repo, prNumberInt).WithComments()
 	initialResponse, err := client.FetchPRData(config)
 	if err != nil {
 		return fmt.Errorf("failed to fetch initial PR data: %w", err)
 	}
-	
+
 	initialComments := initialResponse.GetComments()
 	initialCount := len(initialComments)
-	
+
 	// Check if there's already a summary in the last few comments
 	foundExistingSummary := false
 	for i := len(initialComments) - 1; i >= 0 && i >= len(initialComments)-3; i-- {
@@ -857,14 +852,14 @@ func performRequestSummaryAndWait(cmd *cobra.Command, client *GitHubClient, prNu
 			break
 		}
 	}
-	
+
 	if foundExistingSummary {
 		fmt.Println("✅ Found existing summary in recent comments")
 		return nil
 	}
-	
+
 	startTime := time.Now()
-	
+
 	// Poll for new summary comment
 	for {
 		// Check timeout
@@ -872,39 +867,39 @@ func performRequestSummaryAndWait(cmd *cobra.Command, client *GitHubClient, prNu
 			fmt.Printf("\n⏰ Timeout reached (%v). Summary not posted yet.\n", effectiveTimeout)
 			return fmt.Errorf("timeout waiting for Gemini summary")
 		}
-		
+
 		// Wait before checking
 		time.Sleep(5 * time.Second)
-		
+
 		// Fetch updated comments
 		response, err := client.FetchPRData(config)
 		if err != nil {
 			fmt.Printf("Error fetching PR data: %v\n", err)
 			continue
 		}
-		
+
 		comments := response.GetComments()
-		
+
 		// Check for new comments
 		if len(comments) > initialCount {
 			// Check new comments for summary
 			for i := initialCount; i < len(comments); i++ {
 				if strings.Contains(comments[i].Body, geminiSummaryHeader) {
-					fmt.Printf("\n🎉 Summary posted by %s at %s\n", 
+					fmt.Printf("\n🎉 Summary posted by %s at %s\n",
 						comments[i].Author.Login, comments[i].CreatedAt)
-					
+
 					// Show preview
 					preview := comments[i].Body
 					if len(preview) > 200 {
 						preview = preview[:200] + "..."
 					}
 					fmt.Printf("\nPreview:\n%s\n", preview)
-					
+
 					return nil
 				}
 			}
 		}
-		
+
 		elapsed := time.Since(startTime)
 		remaining := effectiveTimeout - elapsed
 		fmt.Printf("[%s] Waiting for summary... (remaining: %v)\n",
@@ -918,22 +913,22 @@ func waitForReviews(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// Validate flags
 	if excludeReviews && excludeChecks {
 		return fmt.Errorf("cannot exclude both reviews and checks")
 	}
-	
+
 	// Validate mutually exclusive flags
 	if requestSummary && async {
 		return fmt.Errorf("--request-summary and --async are mutually exclusive")
 	}
-	
+
 	// Validate --detailed requires --async
 	if detailed && !async {
 		return fmt.Errorf("--detailed requires --async")
 	}
-	
+
 	// Handle async mode - single check and return (replaces reviews check)
 	if async {
 		if detailed {
@@ -946,25 +941,23 @@ func waitForReviews(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("async mode currently only supports review checking")
 		}
 	}
-	
+
 	// Handle request-summary mode
 	if requestSummary {
 		return performRequestSummaryAndWait(cmd, client, prNumber)
 	}
-	
+
 	// Determine what to wait for
 	waitForReviews := !excludeReviews
 	waitForChecks := !excludeChecks
-	
+
 	// Request Gemini review if flag is set
 	if requestReview && waitForReviews {
-		fmt.Printf("📝 Requesting Gemini review for PR #%s...\n", prNumber)
-		if err := client.CreatePRComment(prNumber, "/gemini review"); err != nil {
-			return fmt.Errorf("failed to request Gemini review: %w", err)
+		if err := requestGeminiReviewForCurrentHead(client, prNumber); err != nil {
+			return err
 		}
-		fmt.Println("✅ Gemini review requested")
 	}
-	
+
 	// Display what we're waiting for
 	waitingFor := []string{}
 	if waitForReviews {
@@ -973,34 +966,34 @@ func waitForReviews(cmd *cobra.Command, args []string) error {
 	if waitForChecks {
 		waitingFor = append(waitingFor, "PR checks")
 	}
-	
+
 	// Calculate timeout with Claude Code constraints
 	_, timeoutDisplay, err := calculateEffectiveTimeout()
 	if err != nil {
 		return err
 	}
-	
-	fmt.Printf("🔄 Waiting for %s on PR #%s (timeout: %s)...\n", 
+
+	fmt.Printf("🔄 Waiting for %s on PR #%s (timeout: %s)...\n",
 		strings.Join(waitingFor, " and "), prNumber, timeoutDisplay)
 	fmt.Println("Press Ctrl+C to stop monitoring")
 
 	// For now, simply delegate to waitForReviewsAndChecks with appropriate flags
 	// This ensures the new default behavior (both reviews and checks) works
-	
+
 	// Temporarily override global flags for delegation
 	originalRequestReview := requestReview
 	defer func() { requestReview = originalRequestReview }()
-	
+
 	// Disable review request in delegated function since we already handled it above
 	requestReview = false
-	
+
 	// If we're only waiting for reviews, use the original simpler logic
 	if waitForReviews && !waitForChecks {
 		fmt.Printf("⚠️  Reviews-only mode: Using simplified wait logic\n")
 		// Simple polling for reviews only (original behavior)
 		return waitForReviewsOnly(prNumber)
 	}
-	
+
 	// For all other cases (checks-only or both), delegate to the full implementation
 	err = waitForReviewsAndChecks(cmd, args)
 	// Don't wrap the error to avoid double error messages
@@ -1014,25 +1007,25 @@ func waitForReviewsOnly(prNumber string) error {
 	if err != nil {
 		return fmt.Errorf("invalid PR number format: %w", err)
 	}
-	
+
 	// Create GitHub client once for better performance (token caching)
 	client := NewGitHubClient(owner, repo)
-	
+
 	// Apply Claude Code timeout constraints
 	effectiveTimeout, timeoutDisplay, err := calculateEffectiveTimeout()
 	if err != nil {
 		return err
 	}
-	
+
 	fmt.Printf("🔄 Waiting for reviews only on PR #%s (timeout: %s)...\n", prNumber, timeoutDisplay)
 	fmt.Println("Press Ctrl+C to stop monitoring")
-	
+
 	// Load existing state
 	lastState, err := loadReviewState(prNumber)
 	if err == nil {
 		fmt.Printf("📊 Tracking reviews since: %s\n", lastState.CreatedAt)
 	}
-	
+
 	startTime := time.Now()
 	for {
 		// Check timeout
@@ -1040,7 +1033,7 @@ func waitForReviewsOnly(prNumber string) error {
 			fmt.Printf("\n⏰ Timeout reached (%v). No new reviews found.\n", effectiveTimeout)
 			return nil
 		}
-		
+
 		// Use unified architecture for review polling
 		config := NewPRQueryConfig(owner, repo, prNumberInt).ForReviewsOnly()
 		response, err := client.FetchPRData(config)
@@ -1049,9 +1042,9 @@ func waitForReviewsOnly(prNumber string) error {
 			time.Sleep(30 * time.Second)
 			continue
 		}
-		
+
 		reviews := response.GetReviews()
-		
+
 		if hasNewReviews(reviews, lastState) {
 			// Find and display new reviews
 			if lastState == nil {
@@ -1069,7 +1062,7 @@ func waitForReviewsOnly(prNumber string) error {
 					}
 				}
 			}
-			
+
 			// Update state with latest review
 			if len(reviews) > 0 {
 				latestReview := reviews[len(reviews)-1]
@@ -1079,18 +1072,18 @@ func waitForReviewsOnly(prNumber string) error {
 				}
 				_ = saveReviewState(prNumber, newState) // Best effort state save
 			}
-			
+
 			fmt.Println("\n✅ New reviews available!")
 			ListThreadsGuidance(prNumber).Print()
 			fmt.Println("⚠️  IMPORTANT: Please read the review feedback carefully before proceeding")
 			return nil
 		}
-		
+
 		elapsed := time.Since(startTime)
 		remaining := effectiveTimeout - elapsed
 		fmt.Printf("[%s] No new reviews yet (remaining: %v)\n",
 			time.Now().Format("15:04:05"), remaining.Truncate(time.Second))
-		
+
 		time.Sleep(30 * time.Second)
 	}
 }
@@ -1102,7 +1095,7 @@ var (
 		"CONFLICTING": "❌ Has conflicts",
 		"UNKNOWN":     "⏳ Checking...",
 	}
-	
+
 	// Note: Status formatting moved to FormatStatusState()
 	// for reuse across dev-tools
 )
@@ -1115,7 +1108,7 @@ func getStatusMessage(state string, withIcon bool) string {
 func waitForReviewsAndChecks(cmd *cobra.Command, args []string) error {
 	// Create GitHub client once for better performance (token caching)
 	client := NewGitHubClient(owner, repo)
-	
+
 	prNumber, err := resolvePRNumberFromArgs(args, client)
 	if err != nil {
 		return err
@@ -1126,13 +1119,13 @@ func waitForReviewsAndChecks(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("invalid PR number format: %w", err)
 	}
-	
+
 	// Calculate timeout with Claude Code constraints
 	effectiveTimeout, timeoutDisplay, err := calculateEffectiveTimeout()
 	if err != nil {
 		return err
 	}
-	
+
 	// Show additional guidance for extending timeout if needed
 	timeoutDuration, parseErr := parseTimeout()
 	if parseErr == nil && effectiveTimeout < timeoutDuration {
@@ -1140,23 +1133,21 @@ func waitForReviewsAndChecks(cmd *cobra.Command, args []string) error {
 		fmt.Printf("💡 Example: {\"env\": {\"BASH_MAX_TIMEOUT_MS\": \"900000\"}} for 15 minutes\n")
 		fmt.Printf("💡 Manual retry: bin/gh-helper reviews wait %s --timeout=%v\n", prNumber, timeoutDuration)
 	}
-	
+
 	// Request Gemini review if flag is set
 	if requestReview {
-		fmt.Printf("📝 Requesting Gemini review for PR #%s...\n", prNumber)
-		if err := client.CreatePRComment(prNumber, "/gemini review"); err != nil {
-			return fmt.Errorf("failed to request Gemini review: %w", err)
+		if err := requestGeminiReviewForCurrentHead(client, prNumber); err != nil {
+			return err
 		}
-		fmt.Println("✅ Gemini review requested")
 	}
-	
+
 	fmt.Printf("🔄 Waiting for both reviews AND PR checks for PR #%s (timeout: %s)...\n", prNumber, timeoutDisplay)
 	fmt.Println("Press Ctrl+C to stop monitoring")
 
 	// Setup signal handling for graceful termination with proper guidance
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	
+
 	// Exit code 130 is standard for SIGINT (Ctrl+C)
 	go func() {
 		sig := <-sigChan
@@ -1232,10 +1223,10 @@ func waitForReviewsAndChecks(cmd *cobra.Command, args []string) error {
 			// 1. No checks are configured for this repository (truly complete)
 			// 2. Checks are configured but haven't started yet (not complete)
 			// 3. PR was just created or pushed (checks pending)
-			
+
 			// Check merge status for better determination
 			mergeable, mergeStatus := response.GetMergeStatus()
-			
+
 			// If PR has conflicts, checks won't run until resolved
 			if mergeable == "CONFLICTING" {
 				checksComplete = true // No point waiting for checks that won't run
@@ -1252,15 +1243,15 @@ func waitForReviewsAndChecks(cmd *cobra.Command, args []string) error {
 		if initialCheck {
 			fmt.Printf("[%s] Monitoring started.\n", time.Now().Format("15:04:05"))
 			fmt.Printf("   Reviews: %d found, Ready: %v\n", len(reviews), reviewsReady)
-			
+
 			// Show mergeable status
 			mergeable, mergeStatus := response.GetMergeStatus()
-			
+
 			msg, exists := mergeStatusMessages[mergeable]
 			if !exists {
 				msg = mergeable // Use raw value for unknown states
 			}
-			
+
 			if mergeable == "CONFLICTING" {
 				fmt.Printf("   Merge: %s (status: %s)\n", msg, mergeStatus)
 			} else {
@@ -1268,7 +1259,7 @@ func waitForReviewsAndChecks(cmd *cobra.Command, args []string) error {
 			}
 			if statusCheckRollup != nil {
 				rollupState := statusCheckRollup.State
-				
+
 				statusMsg := getStatusMessage(rollupState, false)
 				fmt.Printf("   Checks: %s, Complete: %v\n", statusMsg, checksComplete)
 			} else {
@@ -1280,19 +1271,19 @@ func waitForReviewsAndChecks(cmd *cobra.Command, args []string) error {
 		// Check if both conditions are met
 		if reviewsReady && checksComplete {
 			fmt.Printf("\n🎉 [%s] Both reviews and checks are ready!\n", time.Now().Format("15:04:05"))
-			
+
 			if reviewsReady {
 				fmt.Println("✅ Reviews: New reviews available")
-				
+
 				// Output review details to reduce subsequent API calls
 				fmt.Println("\n📋 Recent Reviews:")
 				for i, review := range reviews {
 					if i >= 5 { // Limit to 5 most recent reviews
 						break
 					}
-					fmt.Printf("   • %s by %s (%s) - %s\n", 
-						review.ID, 
-						review.Author.Login, 
+					fmt.Printf("   • %s by %s (%s) - %s\n",
+						review.ID,
+						review.Author.Login,
 						review.State,
 						review.CreatedAt)
 					if review.Body != "" && len(review.Body) > 100 {
@@ -1301,12 +1292,12 @@ func waitForReviewsAndChecks(cmd *cobra.Command, args []string) error {
 						fmt.Printf("     Preview: %s\n", review.Body)
 					}
 				}
-				
+
 				fmt.Println()
 				ListThreadsGuidance(prNumber).Print()
 				fmt.Println("⚠️  IMPORTANT: Please read the review feedback carefully before proceeding")
 			}
-			
+
 			// Show merge conflicts warning if present
 			mergeable, _ := response.GetMergeStatus()
 			if mergeable == "CONFLICTING" {
@@ -1316,13 +1307,13 @@ func waitForReviewsAndChecks(cmd *cobra.Command, args []string) error {
 			if checksComplete {
 				if statusCheckRollup != nil {
 					rollupState := statusCheckRollup.State
-					
+
 					fmt.Printf("Checks: %s\n", getStatusMessage(rollupState, true))
 				} else {
 					fmt.Println("✅ Checks: No checks required")
 				}
 			}
-			
+
 			return nil
 		}
 
@@ -1330,11 +1321,10 @@ func waitForReviewsAndChecks(cmd *cobra.Command, args []string) error {
 		remaining := timeoutDuration - elapsed
 		fmt.Printf("[%s] Status: Reviews: %v, Checks: %v (remaining: %v)\n",
 			time.Now().Format("15:04:05"), reviewsReady, checksComplete, remaining.Truncate(time.Second))
-		
+
 		time.Sleep(30 * time.Second)
 	}
 }
-
 
 func showThread(cmd *cobra.Command, args []string) error {
 	// Create GitHub client once for better performance (token caching)
@@ -1355,9 +1345,9 @@ func showThread(cmd *cobra.Command, args []string) error {
 
 	// Get current user for reply detection
 	currentUser, _ := getCurrentUser()
-	
+
 	results := []map[string]interface{}{}
-	
+
 	// Process each thread ID in order
 	for _, threadID := range args {
 		thread, exists := threadsMap[threadID]
@@ -1372,16 +1362,16 @@ func showThread(cmd *cobra.Command, args []string) error {
 			"path":       thread.Path,
 			"line":       thread.Line,
 		}
-		
+
 		// Include URL only if not empty (respects @skip directive)
 		if thread.URL != "" {
 			output["url"] = thread.URL
 		}
-		
+
 		if thread.SubjectType != "" {
 			output["subjectType"] = thread.SubjectType
 		}
-		
+
 		// Comments using GitHub GraphQL structure
 		comments := []map[string]interface{}{}
 		for i, comment := range thread.Comments {
@@ -1391,24 +1381,24 @@ func showThread(cmd *cobra.Command, args []string) error {
 				"createdAt": comment.CreatedAt,
 				"body":      comment.Body,
 			}
-			
+
 			// Include URL only if not empty (respects @skip directive)
 			if comment.URL != "" {
 				commentData["url"] = comment.URL
 			}
-			
+
 			if i == 0 && comment.DiffHunk != "" {
 				commentData["diffHunk"] = comment.DiffHunk
 			}
-			
+
 			comments = append(comments, commentData)
 		}
-		
+
 		output["comments"] = map[string]interface{}{
 			"nodes":      comments,
 			"totalCount": len(comments),
 		}
-		
+
 		// Check if needs reply
 		if !thread.IsResolved && len(thread.Comments) > 0 {
 			lastComment := thread.Comments[len(thread.Comments)-1]
@@ -1417,15 +1407,15 @@ func showThread(cmd *cobra.Command, args []string) error {
 				output["lastCommentBy"] = lastComment.Author
 			}
 		}
-		
+
 		results = append(results, output)
 	}
-	
+
 	// Output single result for backward compatibility when only one thread
 	if len(results) == 1 {
 		return EncodeOutputWithCmd(cmd, results[0])
 	}
-	
+
 	// Output array for multiple threads
 	return EncodeOutputWithCmd(cmd, results)
 }
@@ -1433,11 +1423,11 @@ func showThread(cmd *cobra.Command, args []string) error {
 func resolveThread(cmd *cobra.Command, args []string) error {
 	// Create GitHub client
 	client := NewGitHubClient(owner, repo)
-	
+
 	// Get output format using unified resolver
 	resolvedAt := time.Now().Format("2006-01-02T15:04:05Z07:00")
 	results := []map[string]interface{}{}
-	
+
 	// Process each thread ID
 	for _, threadID := range args {
 		if err := client.ResolveThread(threadID); err != nil {
@@ -1451,12 +1441,12 @@ func resolveThread(cmd *cobra.Command, args []string) error {
 			"resolvedAt": resolvedAt,
 		})
 	}
-	
+
 	// Output single result for backward compatibility when only one thread
 	if len(results) == 1 {
 		return EncodeOutputWithCmd(cmd, results[0])
 	}
-	
+
 	// Output array for multiple threads
 	return EncodeOutputWithCmd(cmd, results)
 }
@@ -1464,19 +1454,19 @@ func resolveThread(cmd *cobra.Command, args []string) error {
 func submitPendingComments(cmd *cobra.Command, args []string) error {
 	// Create GitHub client
 	client := NewGitHubClient(owner, repo)
-	
+
 	// Resolve PR number
 	prNumber, err := resolvePRNumberFromArgs(args, client)
 	if err != nil {
 		return err
 	}
-	
+
 	// Get PR ID for the submit mutation
 	prNumberInt, err := strconv.Atoi(prNumber)
 	if err != nil {
 		return fmt.Errorf("invalid PR number: %w", err)
 	}
-	
+
 	// Query to get any pending reviews (optimized to fetch only required fields)
 	// Using first: 100 to handle most cases without pagination
 	// For extremely rare cases with >100 pending reviews, pagination would be needed
@@ -1512,19 +1502,19 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 		"repo":     repo,
 		"prNumber": prNumberInt,
 	}
-	
+
 	result, err := client.RunGraphQLQueryWithVariables(query, variables)
 	if err != nil {
 		return fmt.Errorf("failed to fetch PR data: %w", err)
 	}
-	
+
 	var response struct {
 		Data struct {
 			Repository struct {
 				PullRequest struct {
 					Reviews struct {
 						TotalCount int `json:"totalCount"`
-						PageInfo struct {
+						PageInfo   struct {
 							HasNextPage bool   `json:"hasNextPage"`
 							EndCursor   string `json:"endCursor"`
 						} `json:"pageInfo"`
@@ -1545,30 +1535,30 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 			} `json:"viewer"`
 		} `json:"data"`
 	}
-	
+
 	if err := Unmarshal(result, &response); err != nil {
 		return fmt.Errorf("failed to parse response: %w", err)
 	}
-	
+
 	// prID := response.Data.Repository.PullRequest.ID // Not needed for current implementation
 	currentUser := response.Data.Viewer.Login
 	reviews := response.Data.Repository.PullRequest.Reviews
 	pendingReviews := reviews.Nodes
-	
+
 	// Warn if there are more pending reviews than we fetched
 	if reviews.PageInfo.HasNextPage {
 		WarningMsg("More than 100 pending reviews found (total: %d). Only processing first 100.", reviews.TotalCount).Print()
 		WarningMsg("Consider running this command multiple times or implementing full pagination.").Print()
 	}
-	
+
 	if len(pendingReviews) == 0 {
 		InfoMsg("No pending reviews found for PR #%s", prNumber).Print()
 		return EncodeOutputWithCmd(cmd, map[string]interface{}{
-			"message": "No pending reviews to submit",
+			"message":  "No pending reviews to submit",
 			"prNumber": prNumber,
 		})
 	}
-	
+
 	// Define the mutation outside the loop for better performance
 	submitMutation := `
 mutation($reviewID: ID!) {
@@ -1600,7 +1590,7 @@ mutation($reviewID: ID!) {
 	// Submit each pending review owned by the current user
 	submittedCount := 0
 	results := []map[string]interface{}{}
-	
+
 	for _, review := range pendingReviews {
 		// Only submit reviews owned by the current user
 		if review.Author.Login != currentUser {
@@ -1613,63 +1603,63 @@ mutation($reviewID: ID!) {
 			})
 			continue
 		}
-		
+
 		// Since the review state is PENDING, all its comments are also pending.
 		// Using TotalCount is more accurate as it's not limited by pagination (first: 100).
 		pendingCommentCount := review.Comments.TotalCount
-		
+
 		// Submit the review
 		submitVars := map[string]interface{}{
 			"reviewID": review.ID,
 		}
-		
+
 		submitResult, err := client.RunGraphQLQueryWithVariables(submitMutation, submitVars)
 		if err != nil {
 			WarningMsg("Failed to submit review %s: %v", review.ID, err).Print()
 			results = append(results, map[string]interface{}{
-				"reviewId":             review.ID,
-				"status":               "failed",
-				"error":                err.Error(),
-				"pendingCommentCount":  pendingCommentCount,
+				"reviewId":            review.ID,
+				"status":              "failed",
+				"error":               err.Error(),
+				"pendingCommentCount": pendingCommentCount,
 			})
 			continue
 		}
-		
+
 		var submitResponse submitResponseType
-		
+
 		if err := Unmarshal(submitResult, &submitResponse); err != nil {
 			WarningMsg("Failed to parse submit response: %v", err).Print()
 			continue
 		}
-		
+
 		submittedReview := submitResponse.Data.SubmitPullRequestReview.PullRequestReview
 		submittedCount++
-		
+
 		results = append(results, map[string]interface{}{
-			"reviewId":            submittedReview.ID,
-			"status":              "submitted",
-			"state":               submittedReview.State,
-			"submittedAt":         submittedReview.SubmittedAt,
-			"commentsPublished":   review.Comments.TotalCount,
+			"reviewId":          submittedReview.ID,
+			"status":            "submitted",
+			"state":             submittedReview.State,
+			"submittedAt":       submittedReview.SubmittedAt,
+			"commentsPublished": review.Comments.TotalCount,
 		})
-		
+
 		SuccessMsg("Submitted pending review %s (%d comments published)", review.ID, review.Comments.TotalCount).Print()
 	}
-	
+
 	// Summary output
 	output := map[string]interface{}{
-		"prNumber":           prNumber,
+		"prNumber":            prNumber,
 		"pendingReviewsFound": len(pendingReviews),
-		"reviewsSubmitted":   submittedCount,
-		"results":            results,
+		"reviewsSubmitted":    submittedCount,
+		"results":             results,
 	}
-	
+
 	if submittedCount > 0 {
 		output["message"] = fmt.Sprintf("Successfully submitted %d pending review(s)", submittedCount)
 	} else {
 		output["message"] = "No reviews were submitted (none owned by current user)"
 	}
-	
+
 	return EncodeOutputWithCmd(cmd, output)
 }
 
@@ -1795,7 +1785,7 @@ func replyToThread(cmd *cobra.Command, args []string) error {
 		if result.Status == "failed" {
 			return fmt.Errorf("failed to reply to thread: %s", result.Error)
 		}
-		
+
 		outputData := map[string]interface{}{
 			"threadId":  result.ThreadID,
 			"commentId": result.CommentID,
@@ -1837,7 +1827,7 @@ func executeReplyMutation(client *GitHubClient, threadID, body string, result *r
 	// Use the ReplyToThread method which handles intelligent auto-submit
 	// Auto-submit is enabled by default (inverted from noSubmit flag)
 	autoSubmit := !noSubmit
-	
+
 	commentID, commentURL, err := client.ReplyToThread(threadID, body, autoSubmit)
 	if err != nil {
 		return err
@@ -1848,13 +1838,13 @@ func executeReplyMutation(client *GitHubClient, threadID, body string, result *r
 	result.Message = body
 	result.CommentID = commentID
 	result.URL = commentURL
-	
+
 	// Note: With the improved implementation, comments are only pending if there was
 	// already a pending review. The ReplyToThread method handles this intelligently.
 	if !autoSubmit {
 		InfoMsg("Auto-submit disabled. Comment may be pending if added to an existing pending review.").Print()
 	}
-	
+
 	return nil
 }
 
@@ -1888,4 +1878,3 @@ func countResolved(results []replyResult) int {
 	}
 	return count
 }
-

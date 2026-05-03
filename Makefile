@@ -1,6 +1,11 @@
 # gh-dev-tools Makefile
 # Generic GitHub development tools optimized for AI assistants
 
+MISE ?= mise
+MISE_CONFIG := $(CURDIR)/mise.toml
+MISE_ENV := MISE_TRUSTED_CONFIG_PATHS="$(MISE_CONFIG)"
+GOLANGCI_LINT ?= $(MISE) exec -- golangci-lint
+
 build:
 	mkdir -p bin
 	go build -o bin/gh-helper ./gh-helper
@@ -23,7 +28,8 @@ test-quick:
 	go test -short ./...
 
 lint:
-	golangci-lint run
+	$(MISE_ENV) $(MISE) install
+	cd gh-helper && $(MISE_ENV) $(GOLANGCI_LINT) run --timeout=5m
 
 # Combined test and lint check (required before push)
 check: test lint
