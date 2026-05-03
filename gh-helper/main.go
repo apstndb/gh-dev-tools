@@ -237,20 +237,22 @@ Examples:
 // replyWithCommitCmd removed - use 'threads reply' with --message for commit references
 
 var (
-	owner          string
-	repo           string
-	message        string
-	mentionUser    string
-	commitHash     string
-	timeoutStr     string
-	requestReview  bool
-	excludeReviews bool
-	excludeChecks  bool
-	autoResolve    bool
-	async          bool
-	detailed       bool
-	requestSummary bool
-	noSubmit       bool
+	owner                     string
+	repo                      string
+	message                   string
+	mentionUser               string
+	commitHash                string
+	timeoutStr                string
+	requestReview             bool
+	excludeReviews            bool
+	excludeChecks             bool
+	autoResolve               bool
+	async                     bool
+	detailed                  bool
+	requestSummary            bool
+	noSubmit                  bool
+	apiUsage                  bool
+	rateLimitWarningThreshold float64
 )
 
 // Common help text for PR number arguments
@@ -280,6 +282,10 @@ func init() {
 	rootCmd.PersistentFlags().Bool("json", false, "Output JSON format (alias for --format=json)")
 	rootCmd.PersistentFlags().Bool("yaml", false, "Output YAML format (alias for --format=yaml)")
 	rootCmd.PersistentFlags().String("jq", "", "Apply jq query to filter/transform output")
+	rootCmd.PersistentFlags().BoolVar(&apiUsage, "api-usage", false, "Include REST/GraphQL API usage telemetry in command output")
+	rootCmd.PersistentFlags().Float64Var(&rateLimitWarningThreshold, "rate-limit-warning-threshold", 0.5, "Warn to stderr when x-ratelimit-used divided by x-ratelimit-limit reaches this ratio (0 disables)")
+	rootCmd.PersistentPreRun = startAPIUsageForCommand
+	rootCmd.PersistentPostRun = printAPIUsageForTextCommand
 
 	// Mark all format flags as mutually exclusive
 	rootCmd.MarkFlagsMutuallyExclusive("format", "json")

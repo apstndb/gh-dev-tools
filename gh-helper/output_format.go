@@ -34,7 +34,7 @@ func ResolveFormat(cmd *cobra.Command) OutputFormat {
 	if yamlFlag, _ := cmd.Flags().GetBool("yaml"); yamlFlag {
 		return FormatYAML
 	}
-	
+
 	// Check main format flag
 	formatStr, _ := cmd.Flags().GetString("format")
 	format := OutputFormat(strings.ToLower(formatStr))
@@ -64,16 +64,17 @@ func EncodeOutputWithCmd(cmd *cobra.Command, data interface{}) error {
 	// GetString error is intentionally ignored as the jq flag is guaranteed to exist
 	// (registered in rootCmd) and will return empty string if not set
 	jqQuery, _ := cmd.Root().Flags().GetString("jq")
-	
+
 	out := cmd.OutOrStdout()
-	
+
+	data = attachAPIUsageToOutput(cmd, data)
+
 	if jqQuery != "" {
 		return EncodeOutputWithJQ(cmd.Context(), out, format, data, jqQuery)
 	}
-	
+
 	return EncodeOutput(out, format, data)
 }
-
 
 // EncodeOutputWithJQ encodes data with jq query filtering
 func EncodeOutputWithJQ(ctx context.Context, w io.Writer, format OutputFormat, data interface{}, jqQuery string) error {
