@@ -17,6 +17,12 @@ gh-helper threads reply <THREAD_ID> --message "Fixed in commit abc123"
 
 # JSON output for programmatic processing
 gh-helper reviews fetch [PR] --json | jq '.reviewThreads.needingReply[]'
+
+# Include command-local REST/GraphQL usage telemetry
+gh-helper reviews bot-status [PR] --json --api-usage
+
+# Trace every GitHub API request to stderr while keeping stdout machine-readable
+gh-helper threads submit pr/306 --json --api-usage-trace
 ```
 
 ## Design Philosophy
@@ -70,6 +76,43 @@ gh-helper reviews fetch 306 | gojq --yaml-input '.reviewThreads.needsReplyCount'
 # JSON for traditional jq processing
 gh-helper reviews analyze 306 --json | jq '.summary.critical'
 ```
+
+### API Usage Telemetry
+
+All subcommands accept `--api-usage` to expose command-local GitHub API usage.
+For structured output, the encoded object is wrapped as `data` plus `apiUsage`
+so the shape is consistent across commands. For commands that primarily print
+human-readable progress, a concise summary is printed to stderr after the
+command completes.
+
+```bash
+gh-helper reviews fetch 306 --unresolved-only --api-usage
+gh-helper reviews bot-status 306 --json --api-usage
+gh-helper threads reply THREAD --resolve --message "Fixed" --api-usage
+gh-helper threads submit pr/306 --api-usage-trace
+```
+
+The telemetry includes the selected backend classification (`rest`, `graphql`,
+`mixed`, or `none`), observed REST and GraphQL request counts, GraphQL
+`rateLimit.cost` and `rateLimit.nodeCount` from query responses when available,
+and core/GraphQL rate-limit budget from API response headers. gh-helper does not
+call the separate `/rate_limit` endpoint for this flag. For GraphQL mutations or
+queries where `rateLimit` cannot be injected, cost is only estimated when
+sequential response headers expose an in-command `used` delta; otherwise the
+request is counted as cost-unavailable while still reporting the latest
+`limit`, `remaining`, `used`, `resetAt`, and `resetInSeconds` values.
+
+Use `--api-usage-trace` when investigating command-level API consumption. It
+prints one stderr line for every GitHub REST or GraphQL request, including
+request order, operation type/name for GraphQL, REST method/path, HTTP status,
+cost source, response cost or estimated cost when available, node count, and the
+latest rate-limit budget. This flag is intentionally stderr-only so JSON/YAML
+stdout stays pipeable.
+
+Even without `--api-usage`, gh-helper watches GitHub response rate-limit headers
+and prints a stderr warning when `x-ratelimit-used / x-ratelimit-limit` reaches
+50%. Tune this with `--rate-limit-warning-threshold`; set it to `0` to disable
+the warning.
 
 ## Commands Overview
 
