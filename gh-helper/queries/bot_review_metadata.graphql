@@ -1,0 +1,33 @@
+query($owner: String!, $repo: String!, $prNumber: Int!, $reviewBefore: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $prNumber) {
+      number
+      title
+      commits(last: 1) {
+        nodes {
+          commit {
+            oid
+          }
+        }
+      }
+      reviews(last: 100, before: $reviewBefore) {
+        pageInfo {
+          hasPreviousPage
+          startCursor
+        }
+        nodes {
+          id
+          author {
+            login
+          }
+          state
+          body
+          createdAt
+          commit {
+            oid
+          }
+        }
+      }
+    }
+  }
+}

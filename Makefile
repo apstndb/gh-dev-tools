@@ -3,7 +3,7 @@
 
 MISE ?= mise
 MISE_CONFIG := $(CURDIR)/mise.toml
-MISE_ENV := MISE_TRUSTED_CONFIG_PATHS=$(MISE_CONFIG)
+MISE_ENV := MISE_TRUSTED_CONFIG_PATHS="$(MISE_CONFIG)"
 GOLANGCI_LINT ?= $(MISE) exec -- golangci-lint
 
 build:

@@ -1,7 +1,9 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -15,6 +17,12 @@ const (
 	maxBotReviewPages     = 20
 	maxBotThreadPages     = 20
 )
+
+//go:embed queries/bot_review_metadata.graphql
+var botReviewMetadataQuery string
+
+//go:embed queries/bot_review_threads.graphql
+var botReviewThreadsQuery string
 
 var botStatusCmd = &cobra.Command{
 	Use:   "bot-status [pr-number]",
@@ -241,39 +249,6 @@ func (c *GitHubClient) GetBotReviewReport(prNumber string) (*BotReviewReport, er
 }
 
 func (c *GitHubClient) fetchBotReviewMetadata(prNumberInt int) (*botReviewMetadata, error) {
-	query := `
-query($owner: String!, $repo: String!, $prNumber: Int!, $reviewBefore: String) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $prNumber) {
-      number
-      title
-      commits(last: 1) {
-        nodes {
-          commit {
-            oid
-          }
-        }
-      }
-      reviews(last: 100, before: $reviewBefore) {
-        pageInfo {
-          hasPreviousPage
-          startCursor
-        }
-        nodes {
-          id
-          author { login }
-          state
-          body
-          createdAt
-          commit {
-            oid
-          }
-        }
-      }
-    }
-  }
-}`
-
 	metadata := &botReviewMetadata{}
 	reviewBefore := ""
 	for page := 0; ; page++ {
@@ -287,7 +262,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $reviewBefore: String) {
 			variables["reviewBefore"] = reviewBefore
 		}
 
-		result, err := c.RunGraphQLQueryWithVariables(query, variables)
+		result, err := c.RunGraphQLQueryWithVariables(botReviewMetadataQuery, variables)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch bot review metadata: %w", err)
 		}
@@ -335,43 +310,6 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $reviewBefore: String) {
 }
 
 func (c *GitHubClient) fetchBotReviewThreads(prNumberInt int) ([]botThreadNode, bool, error) {
-	query := `
-query($owner: String!, $repo: String!, $prNumber: Int!, $threadAfter: String) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $prNumber) {
-      reviewThreads(first: 100, after: $threadAfter) {
-        nodes {
-          id
-          path
-          line
-          isResolved
-          isOutdated
-          comments(first: 100) {
-            pageInfo {
-              hasNextPage
-            }
-            nodes {
-              body
-              createdAt
-              state
-              author { login }
-              pullRequestReview {
-                commit {
-                  oid
-                }
-              }
-            }
-          }
-        }
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
-      }
-    }
-  }
-}`
-
 	threads := []botThreadNode{}
 	threadsTruncated := false
 	threadAfter := ""
@@ -386,7 +324,7 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $threadAfter: String) {
 			variables["threadAfter"] = threadAfter
 		}
 
-		result, err := c.RunGraphQLQueryWithVariables(query, variables)
+		result, err := c.RunGraphQLQueryWithVariables(botReviewThreadsQuery, variables)
 		if err != nil {
 			return nil, false, fmt.Errorf("failed to fetch bot review threads: %w", err)
 		}
@@ -710,11 +648,13 @@ func requestGeminiReviewForCurrentHead(client *GitHubClient, prNumber string) er
 func localGitHeadOID() string {
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
+		slog.Debug("git command not found, cannot get local HEAD OID", "error", err)
 		return ""
 	}
 	cmd := exec.Command(gitPath, "rev-parse", "HEAD")
 	output, err := cmd.Output()
 	if err != nil {
+		slog.Debug("failed to get local HEAD OID", "error", err)
 		return ""
 	}
 	return strings.TrimSpace(string(output))
