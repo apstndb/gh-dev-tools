@@ -203,6 +203,81 @@ func TestAPIUsageRecorderUsesWarningWriter(t *testing.T) {
 	}
 }
 
+func TestAPIUsageRecorderWarnsPerResource(t *testing.T) {
+	t.Parallel()
+
+	recorder := &apiUsageRecorder{}
+	var stderr bytes.Buffer
+	recorder.Reset(false)
+	recorder.SetWarningThreshold(0.5)
+	recorder.SetWarningWriter(&stderr)
+
+	restHeaders := http.Header{}
+	restHeaders.Set("x-ratelimit-limit", "100")
+	restHeaders.Set("x-ratelimit-used", "60")
+	restHeaders.Set("x-ratelimit-remaining", "40")
+	recorder.RecordRESTResponse(restHeaders, restRequestTrace{})
+
+	graphQLHeaders := http.Header{}
+	graphQLHeaders.Set("x-ratelimit-limit", "100")
+	graphQLHeaders.Set("x-ratelimit-used", "70")
+	graphQLHeaders.Set("x-ratelimit-remaining", "30")
+	recorder.RecordGraphQLResponse(graphQLHeaders, nil, graphQLRequestTrace{})
+
+	got := stderr.String()
+	for _, want := range []string{
+		"GitHub core API rate limit is 60% used",
+		"GitHub graphql API rate limit is 70% used",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("warning output %q does not contain %q", got, want)
+		}
+	}
+}
+
+func TestAPIUsageRecorderSkipsGraphQLBodyParseForWarningOnly(t *testing.T) {
+	t.Parallel()
+
+	recorder := &apiUsageRecorder{}
+	recorder.Reset(false)
+	recorder.SetWarningThreshold(0.5)
+
+	headers := http.Header{}
+	headers.Set("x-ratelimit-limit", "5000")
+	headers.Set("x-ratelimit-remaining", "4999")
+	headers.Set("x-ratelimit-used", "1")
+
+	recorder.RecordGraphQLResponse(headers, []byte(`{
+		"data": {
+			"ghHelperApiUsageRateLimit": {
+				"cost": 99,
+				"limit": 5000,
+				"nodeCount": 999,
+				"remaining": 4900,
+				"used": 100,
+				"resetAt": "2026-05-03T12:00:00Z"
+			}
+		}
+	}`), graphQLRequestTrace{})
+
+	recorder.mu.Lock()
+	report := recorder.buildReportLocked()
+	recorder.mu.Unlock()
+
+	if report.Observed.GraphQLRequests != 0 {
+		t.Fatalf("GraphQLRequests = %d, want 0", report.Observed.GraphQLRequests)
+	}
+	if report.Observed.GraphQLCost != 0 {
+		t.Fatalf("GraphQLCost = %d, want 0", report.Observed.GraphQLCost)
+	}
+	if report.RateLimit == nil || report.RateLimit.GraphQL == nil {
+		t.Fatalf("GraphQL rate limit report is nil")
+	}
+	if report.RateLimit.GraphQL.Used == nil || *report.RateLimit.GraphQL.Used != 1 {
+		t.Fatalf("GraphQL used = %v, want header value 1", report.RateLimit.GraphQL.Used)
+	}
+}
+
 func TestAPIUsageRecorderWritesGraphQLTrace(t *testing.T) {
 	t.Parallel()
 
@@ -247,6 +322,36 @@ func TestAPIUsageRecorderWritesGraphQLTrace(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("trace output %q does not contain %q", got, want)
 		}
+	}
+}
+
+func TestAttachAPIUsageToOutputAlwaysWrapsData(t *testing.T) {
+	oldAPIUsage := apiUsage
+	defer func() { apiUsage = oldAPIUsage }()
+	apiUsage = true
+
+	commandAPIUsage.Reset(true)
+	got, attached := attachAPIUsageToOutput(nil, map[string]interface{}{"value": 1})
+	if !attached {
+		t.Fatal("attached = false, want true")
+	}
+
+	output, ok := got.(map[string]interface{})
+	if !ok {
+		t.Fatalf("output type = %T, want map[string]interface{}", got)
+	}
+	if _, ok := output["apiUsage"]; !ok {
+		t.Fatalf("output missing apiUsage: %#v", output)
+	}
+	data, ok := output["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("data type = %T, want map[string]interface{}", output["data"])
+	}
+	if data["value"] != 1 {
+		t.Fatalf("data[value] = %v, want 1", data["value"])
+	}
+	if _, ok := output["value"]; ok {
+		t.Fatalf("output should not inject original map fields at root: %#v", output)
 	}
 }
 

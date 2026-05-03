@@ -80,9 +80,10 @@ gh-helper reviews analyze 306 --json | jq '.summary.critical'
 ### API Usage Telemetry
 
 All subcommands accept `--api-usage` to expose command-local GitHub API usage.
-For structured output, `apiUsage` is added to the encoded object. For commands
-that primarily print human-readable progress, a concise summary is printed to
-stderr after the command completes.
+For structured output, the encoded object is wrapped as `data` plus `apiUsage`
+so the shape is consistent across commands. For commands that primarily print
+human-readable progress, a concise summary is printed to stderr after the
+command completes.
 
 ```bash
 gh-helper reviews fetch 306 --unresolved-only --api-usage

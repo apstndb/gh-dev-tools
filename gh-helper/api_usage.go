@@ -81,7 +81,7 @@ type apiUsageRecorder struct {
 	lastGraphQLUsed *int
 
 	warningThreshold float64
-	warningWritten   bool
+	warningWritten   map[string]bool
 	warningWriter    io.Writer
 	trace            bool
 	traceWriter      io.Writer
@@ -117,11 +117,6 @@ func attachAPIUsageToOutput(cmd *cobra.Command, data interface{}) (interface{}, 
 	}
 
 	report := commandAPIUsage.Finish()
-
-	if dataMap, ok := data.(map[string]interface{}); ok {
-		dataMap["apiUsage"] = report
-		return dataMap, true
-	}
 
 	return map[string]interface{}{
 		"data":     data,
@@ -165,7 +160,7 @@ func (r *apiUsageRecorder) Reset(enabled bool) {
 	r.warnings = nil
 	r.lastGraphQLUsed = nil
 	r.warningThreshold = 0
-	r.warningWritten = false
+	r.warningWritten = nil
 	r.warningWriter = os.Stderr
 	r.trace = false
 	r.traceWriter = os.Stderr
@@ -209,9 +204,12 @@ func (r *apiUsageRecorder) RecordGraphQLResponse(headers http.Header, body []byt
 	if !r.shouldTrackLocked() {
 		return
 	}
-	r.observed.GraphQLRequests++
 	previousUsed := r.lastGraphQLUsed
 	r.updateAfterFromHeaders("graphql", headers)
+	if !r.enabled && !r.trace {
+		return
+	}
+	r.observed.GraphQLRequests++
 	if rateLimit, ok := graphQLRateLimitFromResponse(body); ok {
 		r.observed.GraphQLCost += rateLimit.Cost
 		r.observed.GraphQLCostKnownRequests++
@@ -245,8 +243,11 @@ func (r *apiUsageRecorder) RecordRESTResponse(headers http.Header, trace restReq
 	if !r.shouldTrackLocked() {
 		return
 	}
-	r.observed.RESTRequests++
 	r.updateAfterFromHeaders("core", headers)
+	if !r.enabled && !r.trace {
+		return
+	}
+	r.observed.RESTRequests++
 	r.writeRESTTraceLocked(trace)
 }
 
@@ -360,7 +361,10 @@ func (r *apiUsageRecorder) updateAfterFromGraphQLRateLimit(rateLimit graphQLRate
 }
 
 func (r *apiUsageRecorder) maybeWarnRateLimitLocked(resource string, rateLimit rateLimitResource) {
-	if r.warningWritten || r.warningThreshold <= 0 || rateLimit.Limit <= 0 {
+	if r.warningThreshold <= 0 || rateLimit.Limit <= 0 {
+		return
+	}
+	if r.warningWritten != nil && r.warningWritten[resource] {
 		return
 	}
 	usedRatio := float64(rateLimit.Used) / float64(rateLimit.Limit)
@@ -390,7 +394,10 @@ func (r *apiUsageRecorder) maybeWarnRateLimitLocked(resource string, rateLimit r
 		resetAt,
 		resetIn,
 	)
-	r.warningWritten = true
+	if r.warningWritten == nil {
+		r.warningWritten = map[string]bool{}
+	}
+	r.warningWritten[resource] = true
 }
 
 func (r *apiUsageRecorder) writeGraphQLTraceLocked(trace graphQLRequestTrace, costSource string, rateLimit *graphQLRateLimitTelemetry, estimatedCost *int) {
