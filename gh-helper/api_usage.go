@@ -63,11 +63,15 @@ type rateLimitSnapshot struct {
 }
 
 type rateLimitResource struct {
-	Seen      bool
-	Limit     int
-	Remaining int
-	Used      int
-	Reset     int64
+	Seen          bool
+	Limit         int
+	LimitSeen     bool
+	Remaining     int
+	RemainingSeen bool
+	Used          int
+	UsedSeen      bool
+	Reset         int64
+	ResetSeen     bool
 }
 
 type apiUsageRecorder struct {
@@ -329,15 +333,22 @@ func (r *apiUsageRecorder) updateAfterFromHeaders(resource string, headers http.
 	target.Seen = target.Seen || limitOK || remainingOK || usedOK || resetOK
 	if limitOK {
 		target.Limit = limit
+		target.LimitSeen = true
 	}
 	if remainingOK {
 		target.Remaining = remaining
+		target.RemainingSeen = true
 	}
 	if usedOK {
 		target.Used = used
+		target.UsedSeen = true
+	} else if limitOK && remainingOK {
+		target.Used = limit - remaining
+		target.UsedSeen = true
 	}
 	if resetOK {
 		target.Reset = reset
+		target.ResetSeen = true
 	}
 	r.maybeWarnRateLimitLocked(resource, *target)
 }
@@ -352,19 +363,23 @@ func (r *apiUsageRecorder) updateAfterFromGraphQLRateLimit(rateLimit graphQLRate
 	target.Seen = true
 	if rateLimit.Limit != 0 {
 		target.Limit = rateLimit.Limit
+		target.LimitSeen = true
 	}
 	target.Remaining = rateLimit.Remaining
+	target.RemainingSeen = true
 	target.Used = rateLimit.Used
+	target.UsedSeen = true
 	if rateLimit.ResetAt != "" {
 		if resetAt, err := time.Parse(time.RFC3339, rateLimit.ResetAt); err == nil {
 			target.Reset = resetAt.Unix()
+			target.ResetSeen = true
 		}
 	}
 	r.maybeWarnRateLimitLocked("graphql", *target)
 }
 
 func (r *apiUsageRecorder) maybeWarnRateLimitLocked(resource string, rateLimit rateLimitResource) {
-	if r.warningThreshold <= 0 || rateLimit.Limit <= 0 {
+	if r.warningThreshold <= 0 || !rateLimit.LimitSeen || !rateLimit.UsedSeen || rateLimit.Limit <= 0 {
 		return
 	}
 	if r.warningWritten != nil && r.warningWritten[resource] {
@@ -377,7 +392,7 @@ func (r *apiUsageRecorder) maybeWarnRateLimitLocked(resource string, rateLimit r
 
 	resetAt := "unknown"
 	resetIn := ""
-	if rateLimit.Reset != 0 {
+	if rateLimit.ResetSeen {
 		resetAtTime := time.Unix(rateLimit.Reset, 0).UTC()
 		resetAt = resetAtTime.Format(time.RFC3339)
 		resetIn = fmt.Sprintf(" in %s", formatResetIn(time.Until(resetAtTime)))
@@ -392,7 +407,7 @@ func (r *apiUsageRecorder) maybeWarnRateLimitLocked(resource string, rateLimit r
 		usedRatio*100,
 		rateLimit.Used,
 		rateLimit.Limit,
-		rateLimit.Remaining,
+		rateLimitRemainingForWarning(rateLimit),
 		resetAt,
 		resetIn,
 	)
@@ -489,13 +504,15 @@ func appendRateLimitHeaderTraceParts(parts []string, rateLimit *rateLimitResourc
 	if rateLimit == nil || !rateLimit.Seen {
 		return parts
 	}
-	if rateLimit.Limit != 0 {
+	if rateLimit.UsedSeen && rateLimit.LimitSeen {
 		parts = append(parts, fmt.Sprintf("used=%d/%d", rateLimit.Used, rateLimit.Limit))
-	} else {
+	} else if rateLimit.UsedSeen {
 		parts = append(parts, fmt.Sprintf("used=%d", rateLimit.Used))
 	}
-	parts = append(parts, fmt.Sprintf("remaining=%d", rateLimit.Remaining))
-	if rateLimit.Reset != 0 {
+	if rateLimit.RemainingSeen {
+		parts = append(parts, fmt.Sprintf("remaining=%d", rateLimit.Remaining))
+	}
+	if rateLimit.ResetSeen {
 		resetAt := time.Unix(rateLimit.Reset, 0).UTC()
 		parts = append(parts, "resetAt="+resetAt.Format(time.RFC3339), "resetIn="+formatResetIn(time.Until(resetAt)))
 	}
@@ -543,17 +560,28 @@ func buildRateLimitResourceReport(after *rateLimitResource) *APIUsageRateLimitRe
 	}
 
 	report := &APIUsageRateLimitResource{}
-	report.Remaining = apiUsageIntPtr(after.Remaining)
-	report.Used = apiUsageIntPtr(after.Used)
-	if after.Limit != 0 {
+	if after.RemainingSeen {
+		report.Remaining = apiUsageIntPtr(after.Remaining)
+	}
+	if after.UsedSeen {
+		report.Used = apiUsageIntPtr(after.Used)
+	}
+	if after.LimitSeen {
 		report.Limit = apiUsageIntPtr(after.Limit)
 	}
-	if after.Reset != 0 {
+	if after.ResetSeen {
 		resetAt := time.Unix(after.Reset, 0).UTC()
 		report.ResetAt = resetAt.Format(time.RFC3339)
 		report.ResetInSeconds = apiUsageInt64Ptr(maxDurationSeconds(time.Until(resetAt)))
 	}
 	return report
+}
+
+func rateLimitRemainingForWarning(rateLimit rateLimitResource) int {
+	if rateLimit.RemainingSeen {
+		return rateLimit.Remaining
+	}
+	return rateLimit.Limit - rateLimit.Used
 }
 
 func apiUsageIntPtr(value int) *int {

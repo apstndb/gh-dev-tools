@@ -183,6 +183,75 @@ func TestAPIUsageRecorderOmitsUnseenRateLimit(t *testing.T) {
 	}
 }
 
+func TestAPIUsageRecorderOmitsUnseenRateLimitFields(t *testing.T) {
+	t.Parallel()
+
+	recorder := &apiUsageRecorder{}
+	recorder.Reset(true)
+
+	headers := http.Header{}
+	headers.Set("x-ratelimit-limit", "5000")
+	recorder.RecordRESTResponse(headers, restRequestTrace{})
+
+	recorder.mu.Lock()
+	report := recorder.buildReportLocked()
+	recorder.mu.Unlock()
+
+	if report.RateLimit == nil || report.RateLimit.Core == nil {
+		t.Fatalf("Core rate limit report is nil")
+	}
+	if report.RateLimit.Core.Limit == nil || *report.RateLimit.Core.Limit != 5000 {
+		t.Fatalf("Limit = %v, want 5000", report.RateLimit.Core.Limit)
+	}
+	if report.RateLimit.Core.Used != nil {
+		t.Fatalf("Used = %v, want nil for unseen header", *report.RateLimit.Core.Used)
+	}
+	if report.RateLimit.Core.Remaining != nil {
+		t.Fatalf("Remaining = %v, want nil for unseen header", *report.RateLimit.Core.Remaining)
+	}
+}
+
+func TestAPIUsageRecorderDerivesUsedFromLimitAndRemaining(t *testing.T) {
+	t.Parallel()
+
+	recorder := &apiUsageRecorder{}
+	recorder.Reset(true)
+
+	headers := http.Header{}
+	headers.Set("x-ratelimit-limit", "5000")
+	headers.Set("x-ratelimit-remaining", "4990")
+	recorder.RecordRESTResponse(headers, restRequestTrace{})
+
+	recorder.mu.Lock()
+	report := recorder.buildReportLocked()
+	recorder.mu.Unlock()
+
+	if report.RateLimit == nil || report.RateLimit.Core == nil {
+		t.Fatalf("Core rate limit report is nil")
+	}
+	if report.RateLimit.Core.Used == nil || *report.RateLimit.Core.Used != 10 {
+		t.Fatalf("Used = %v, want derived value 10", report.RateLimit.Core.Used)
+	}
+}
+
+func TestAPIUsageRecorderSkipsWarningWithoutUsed(t *testing.T) {
+	t.Parallel()
+
+	recorder := &apiUsageRecorder{}
+	var stderr bytes.Buffer
+	recorder.Reset(false)
+	recorder.SetWarningThreshold(0.5)
+	recorder.SetWarningWriter(&stderr)
+
+	headers := http.Header{}
+	headers.Set("x-ratelimit-limit", "100")
+	recorder.RecordRESTResponse(headers, restRequestTrace{})
+
+	if got := stderr.String(); got != "" {
+		t.Fatalf("warning output = %q, want empty", got)
+	}
+}
+
 func TestAPIUsageRecorderUsesWarningWriter(t *testing.T) {
 	t.Parallel()
 
