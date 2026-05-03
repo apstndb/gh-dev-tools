@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"strings"
 	"unicode"
@@ -233,7 +232,7 @@ func (s *graphQLScanner) skipString() {
 
 func (s *graphQLScanner) skipBlockString() {
 	s.pos += 3
-	if end := bytes.Index([]byte(s.input[s.pos:]), []byte(`"""`)); end >= 0 {
+	if end := strings.Index(s.input[s.pos:], `"""`); end >= 0 {
 		s.pos += end + 3
 		return
 	}

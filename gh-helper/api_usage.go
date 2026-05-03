@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,10 +15,10 @@ import (
 )
 
 type APIUsageReport struct {
-	Backend   string            `json:"backend"`
-	Observed  APIUsageObserved  `json:"observed"`
-	RateLimit APIUsageRateLimit `json:"rateLimit,omitempty"`
-	Warnings  []string          `json:"warnings,omitempty"`
+	Backend   string             `json:"backend"`
+	Observed  APIUsageObserved   `json:"observed"`
+	RateLimit *APIUsageRateLimit `json:"rateLimit,omitempty"`
+	Warnings  []string           `json:"warnings,omitempty"`
 }
 
 type APIUsageObserved struct {
@@ -31,8 +32,8 @@ type APIUsageObserved struct {
 }
 
 type APIUsageRateLimit struct {
-	Core    APIUsageRateLimitResource `json:"core,omitempty"`
-	GraphQL APIUsageRateLimitResource `json:"graphql,omitempty"`
+	Core    *APIUsageRateLimitResource `json:"core,omitempty"`
+	GraphQL *APIUsageRateLimitResource `json:"graphql,omitempty"`
 }
 
 type APIUsageRateLimitResource struct {
@@ -69,20 +70,23 @@ type apiUsageRecorder struct {
 
 	warningThreshold float64
 	warningWritten   bool
+	warningWriter    io.Writer
 	structuredOutput bool
 }
 
 var commandAPIUsage = &apiUsageRecorder{}
 
-func startAPIUsageForCommand(_ *cobra.Command, _ []string) {
+func startAPIUsageForCommand(cmd *cobra.Command, _ []string) {
 	if !apiUsage {
 		commandAPIUsage.Reset(false)
 		commandAPIUsage.SetWarningThreshold(rateLimitWarningThreshold)
+		commandAPIUsage.SetWarningWriter(cmd.ErrOrStderr())
 		return
 	}
 
 	commandAPIUsage.Reset(true)
 	commandAPIUsage.SetWarningThreshold(rateLimitWarningThreshold)
+	commandAPIUsage.SetWarningWriter(cmd.ErrOrStderr())
 }
 
 func printAPIUsageForTextCommand(cmd *cobra.Command, _ []string) {
@@ -95,31 +99,26 @@ func printAPIUsageForTextCommand(cmd *cobra.Command, _ []string) {
 	}
 }
 
-func apiUsageEnabledForCommand(cmd *cobra.Command) bool {
-	if cmd == nil {
-		return false
-	}
-	enabled, err := cmd.Root().PersistentFlags().GetBool("api-usage")
-	return err == nil && enabled
+func apiUsageEnabledForCommand(_ *cobra.Command) bool {
+	return apiUsage
 }
 
-func attachAPIUsageToOutput(cmd *cobra.Command, data interface{}) interface{} {
+func attachAPIUsageToOutput(cmd *cobra.Command, data interface{}) (interface{}, bool) {
 	if !apiUsageEnabledForCommand(cmd) {
-		return data
+		return data, false
 	}
 
 	report := commandAPIUsage.Finish()
-	commandAPIUsage.MarkStructuredOutputWritten()
 
 	if dataMap, ok := data.(map[string]interface{}); ok {
 		dataMap["apiUsage"] = report
-		return dataMap
+		return dataMap, true
 	}
 
 	return map[string]interface{}{
 		"data":     data,
 		"apiUsage": report,
-	}
+	}, true
 }
 
 func formatAPIUsageSummary(report *APIUsageReport) string {
@@ -134,10 +133,10 @@ func formatAPIUsageSummary(report *APIUsageReport) string {
 	if report.Observed.GraphQLCost > 0 {
 		parts = append(parts, fmt.Sprintf("graphqlCost=%d", report.Observed.GraphQLCost))
 	}
-	if report.RateLimit.Core.Remaining != nil {
+	if report.RateLimit != nil && report.RateLimit.Core != nil && report.RateLimit.Core.Remaining != nil {
 		parts = append(parts, fmt.Sprintf("coreRemaining=%d", *report.RateLimit.Core.Remaining))
 	}
-	if report.RateLimit.GraphQL.Remaining != nil {
+	if report.RateLimit != nil && report.RateLimit.GraphQL != nil && report.RateLimit.GraphQL.Remaining != nil {
 		parts = append(parts, fmt.Sprintf("graphqlRemaining=%d", *report.RateLimit.GraphQL.Remaining))
 	}
 	if len(report.Warnings) > 0 {
@@ -159,6 +158,7 @@ func (r *apiUsageRecorder) Reset(enabled bool) {
 	r.lastGraphQLUsed = nil
 	r.warningThreshold = 0
 	r.warningWritten = false
+	r.warningWriter = os.Stderr
 	r.structuredOutput = false
 }
 
@@ -167,6 +167,17 @@ func (r *apiUsageRecorder) SetWarningThreshold(threshold float64) {
 	defer r.mu.Unlock()
 
 	r.warningThreshold = threshold
+}
+
+func (r *apiUsageRecorder) SetWarningWriter(writer io.Writer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if writer == nil {
+		r.warningWriter = os.Stderr
+		return
+	}
+	r.warningWriter = writer
 }
 
 func (r *apiUsageRecorder) RecordGraphQLResponse(headers http.Header, body []byte) {
@@ -336,8 +347,12 @@ func (r *apiUsageRecorder) maybeWarnRateLimitLocked(resource string, rateLimit r
 		resetAt = resetAtTime.Format(time.RFC3339)
 		resetIn = fmt.Sprintf(" in %s", formatResetIn(time.Until(resetAtTime)))
 	}
+	writer := r.warningWriter
+	if writer == nil {
+		writer = os.Stderr
+	}
 	_, _ = fmt.Fprintf(
-		os.Stderr,
+		writer,
 		"warning: GitHub %s API rate limit is %.0f%% used (%d/%d used, %d remaining, resets at %s%s)\n",
 		resource,
 		usedRatio*100,
@@ -363,10 +378,15 @@ func observedBackend(observed APIUsageObserved) string {
 	}
 }
 
-func buildRateLimitReport(after *rateLimitSnapshot) APIUsageRateLimit {
-	return APIUsageRateLimit{
-		Core:    buildRateLimitResourceReport(resourceFromSnapshot(after, "core")),
-		GraphQL: buildRateLimitResourceReport(resourceFromSnapshot(after, "graphql")),
+func buildRateLimitReport(after *rateLimitSnapshot) *APIUsageRateLimit {
+	core := buildRateLimitResourceReport(resourceFromSnapshot(after, "core"))
+	graphQL := buildRateLimitResourceReport(resourceFromSnapshot(after, "graphql"))
+	if core == nil && graphQL == nil {
+		return nil
+	}
+	return &APIUsageRateLimit{
+		Core:    core,
+		GraphQL: graphQL,
 	}
 }
 
@@ -380,12 +400,12 @@ func resourceFromSnapshot(snapshot *rateLimitSnapshot, resource string) *rateLim
 	return &snapshot.Core
 }
 
-func buildRateLimitResourceReport(after *rateLimitResource) APIUsageRateLimitResource {
-	report := APIUsageRateLimitResource{}
+func buildRateLimitResourceReport(after *rateLimitResource) *APIUsageRateLimitResource {
 	if after == nil || !after.Seen {
-		return report
+		return nil
 	}
 
+	report := &APIUsageRateLimitResource{}
 	report.Remaining = apiUsageIntPtr(after.Remaining)
 	report.Used = apiUsageIntPtr(after.Used)
 	if after.Limit != 0 {
@@ -427,7 +447,6 @@ func formatResetIn(duration time.Duration) string {
 	if duration < time.Hour {
 		return duration.String()
 	}
-	duration = duration.Round(time.Minute)
 	return duration.String()
 }
 

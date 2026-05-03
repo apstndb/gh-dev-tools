@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"strings"
@@ -46,6 +47,9 @@ func TestAPIUsageRecorderEstimatesGraphQLCostFromSequentialHeaders(t *testing.T)
 	}
 	if report.Observed.GraphQLCostUnavailableRequests != 1 {
 		t.Fatalf("GraphQLCostUnavailableRequests = %d, want 1", report.Observed.GraphQLCostUnavailableRequests)
+	}
+	if report.RateLimit == nil || report.RateLimit.GraphQL == nil {
+		t.Fatalf("GraphQL rate limit report is nil")
 	}
 	if report.RateLimit.GraphQL.Remaining == nil || *report.RateLimit.GraphQL.Remaining != 4889 {
 		t.Fatalf("Remaining = %v, want 4889", report.RateLimit.GraphQL.Remaining)
@@ -120,6 +124,9 @@ func TestAPIUsageRecorderPrefersGraphQLCostFromResponse(t *testing.T) {
 	if report.Observed.GraphQLNodeCount != 9 {
 		t.Fatalf("GraphQLNodeCount = %d, want response node count 9", report.Observed.GraphQLNodeCount)
 	}
+	if report.RateLimit == nil || report.RateLimit.GraphQL == nil {
+		t.Fatalf("GraphQL rate limit report is nil")
+	}
 	if report.RateLimit.GraphQL.Limit == nil || *report.RateLimit.GraphQL.Limit != 5000 {
 		t.Fatalf("GraphQL limit = %v, want 5000", report.RateLimit.GraphQL.Limit)
 	}
@@ -147,8 +154,8 @@ func TestFormatAPIUsageSummary(t *testing.T) {
 			GraphQLRequests: 2,
 			GraphQLCost:     7,
 		},
-		RateLimit: APIUsageRateLimit{
-			GraphQL: APIUsageRateLimitResource{
+		RateLimit: &APIUsageRateLimit{
+			GraphQL: &APIUsageRateLimitResource{
 				Remaining: &remaining,
 			},
 		},
@@ -158,5 +165,40 @@ func TestFormatAPIUsageSummary(t *testing.T) {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("summary %q does not contain %q", summary, want)
 		}
+	}
+}
+
+func TestAPIUsageRecorderOmitsUnseenRateLimit(t *testing.T) {
+	t.Parallel()
+
+	recorder := &apiUsageRecorder{}
+	recorder.Reset(true)
+
+	recorder.mu.Lock()
+	report := recorder.buildReportLocked()
+	recorder.mu.Unlock()
+
+	if report.RateLimit != nil {
+		t.Fatalf("RateLimit = %#v, want nil", report.RateLimit)
+	}
+}
+
+func TestAPIUsageRecorderUsesWarningWriter(t *testing.T) {
+	t.Parallel()
+
+	recorder := &apiUsageRecorder{}
+	var stderr bytes.Buffer
+	recorder.Reset(false)
+	recorder.SetWarningThreshold(0.5)
+	recorder.SetWarningWriter(&stderr)
+
+	headers := http.Header{}
+	headers.Set("x-ratelimit-limit", "100")
+	headers.Set("x-ratelimit-used", "75")
+	headers.Set("x-ratelimit-remaining", "25")
+	recorder.RecordGraphQLResponse(headers, nil)
+
+	if got := stderr.String(); !strings.Contains(got, "GitHub graphql API rate limit is 75% used") {
+		t.Fatalf("warning output = %q", got)
 	}
 }

@@ -67,13 +67,18 @@ func EncodeOutputWithCmd(cmd *cobra.Command, data interface{}) error {
 
 	out := cmd.OutOrStdout()
 
-	data = attachAPIUsageToOutput(cmd, data)
+	data, attachedAPIUsage := attachAPIUsageToOutput(cmd, data)
 
+	var err error
 	if jqQuery != "" {
-		return EncodeOutputWithJQ(cmd.Context(), out, format, data, jqQuery)
+		err = EncodeOutputWithJQ(cmd.Context(), out, format, data, jqQuery)
+	} else {
+		err = EncodeOutput(out, format, data)
 	}
-
-	return EncodeOutput(out, format, data)
+	if err == nil && attachedAPIUsage {
+		commandAPIUsage.MarkStructuredOutputWritten()
+	}
+	return err
 }
 
 // EncodeOutputWithJQ encodes data with jq query filtering
