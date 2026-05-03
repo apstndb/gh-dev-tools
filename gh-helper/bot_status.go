@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	_ "embed"
 	"fmt"
 	"log/slog"
@@ -766,11 +767,19 @@ func readGitRef(root string, ref string) string {
 		}
 	}
 
-	packedRefs, err := os.ReadFile(filepath.Join(root, "packed-refs"))
+	packedRefs, err := os.Open(filepath.Join(root, "packed-refs"))
 	if err != nil {
 		return ""
 	}
-	for _, line := range strings.Split(string(packedRefs), "\n") {
+	defer func() {
+		if err := packedRefs.Close(); err != nil {
+			slog.Debug("failed to close packed-refs", "root", root, "error", err)
+		}
+	}()
+
+	scanner := bufio.NewScanner(packedRefs)
+	for scanner.Scan() {
+		line := scanner.Text()
 		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {
 			continue
 		}
@@ -778,6 +787,9 @@ func readGitRef(root string, ref string) string {
 		if ok && packedRef == ref && isGitOID(oid) {
 			return oid
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		slog.Debug("failed to scan packed-refs", "root", root, "error", err)
 	}
 	return ""
 }
