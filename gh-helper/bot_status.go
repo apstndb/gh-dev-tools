@@ -18,6 +18,7 @@ const (
 	geminiReviewBotLogin  = "gemini-code-assist"
 	maxBotReviewPages     = 20
 	maxBotThreadPages     = 20
+	maxGitRefLineSize     = 1024 * 1024
 )
 
 //go:embed queries/bot_review_metadata.graphql
@@ -775,6 +776,7 @@ func readGitRef(root string, ref string) string {
 	}()
 
 	scanner := bufio.NewScanner(packedRefs)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxGitRefLineSize)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {

@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -291,6 +292,24 @@ func TestReadGitHeadOIDFromPackedRef(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(gitDir, "packed-refs"), []byte(oid+" refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := readGitHeadOID(gitDir); got != oid {
+		t.Fatalf("readGitHeadOID() = %q, want %q", got, oid)
+	}
+}
+
+func TestReadGitHeadOIDFromLongPackedRef(t *testing.T) {
+	t.Parallel()
+
+	gitDir := t.TempDir()
+	const oid = "0123456789abcdef0123456789abcdef01234567"
+	ref := "refs/heads/" + strings.Repeat("long-ref-name/", 5000) + "main"
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: "+ref+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "packed-refs"), []byte(oid+" "+ref+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
