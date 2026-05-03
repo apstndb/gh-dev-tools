@@ -160,6 +160,7 @@ func (c *GitHubClient) RunGraphQLQueryWithVariables(query string, variables map[
 
 	// Prepare GraphQL request
 	requestQuery, injectedRateLimit := injectGraphQLRateLimit(query)
+	operationType, operationName := graphQLOperationTrace(query)
 	reqPayload := GraphQLRequest{
 		Query:     requestQuery,
 		Variables: variables,
@@ -201,7 +202,11 @@ func (c *GitHubClient) RunGraphQLQueryWithVariables(query string, variables map[
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
-	commandAPIUsage.RecordGraphQLResponse(resp.Header, buf.Bytes())
+	commandAPIUsage.RecordGraphQLResponse(resp.Header, buf.Bytes(), graphQLRequestTrace{
+		OperationType: operationType,
+		OperationName: operationName,
+		StatusCode:    resp.StatusCode,
+	})
 
 	// Check HTTP status
 	if resp.StatusCode != http.StatusOK {
@@ -333,7 +338,11 @@ func (c *GitHubClient) CreatePRConversationCommentREST(prNumber, body string) er
 	if err != nil {
 		return fmt.Errorf("failed to execute REST comment request: %w", err)
 	}
-	commandAPIUsage.RecordRESTResponse(resp.Header)
+	commandAPIUsage.RecordRESTResponse(resp.Header, restRequestTrace{
+		Method:     req.Method,
+		Path:       req.URL.Path,
+		StatusCode: resp.StatusCode,
+	})
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
 			slog.Warn("failed to close response body", "url", resp.Request.URL.String(), "error", err)

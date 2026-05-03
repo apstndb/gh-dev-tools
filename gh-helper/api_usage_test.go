@@ -20,14 +20,14 @@ func TestAPIUsageRecorderEstimatesGraphQLCostFromSequentialHeaders(t *testing.T)
 	headers.Set("x-ratelimit-remaining", "4900")
 	headers.Set("x-ratelimit-used", "100")
 	headers.Set("x-ratelimit-reset", "1777809256")
-	recorder.RecordGraphQLResponse(headers, nil)
+	recorder.RecordGraphQLResponse(headers, nil, graphQLRequestTrace{})
 
 	headers = http.Header{}
 	headers.Set("x-ratelimit-limit", "5000")
 	headers.Set("x-ratelimit-remaining", "4889")
 	headers.Set("x-ratelimit-used", "111")
 	headers.Set("x-ratelimit-reset", "1777809256")
-	recorder.RecordGraphQLResponse(headers, nil)
+	recorder.RecordGraphQLResponse(headers, nil, graphQLRequestTrace{})
 
 	recorder.mu.Lock()
 	report := recorder.buildReportLocked()
@@ -66,13 +66,13 @@ func TestAPIUsageRecorderReportsMixedBackend(t *testing.T) {
 	restHeaders.Set("x-ratelimit-limit", "5000")
 	restHeaders.Set("x-ratelimit-remaining", "4998")
 	restHeaders.Set("x-ratelimit-used", "2")
-	recorder.RecordRESTResponse(restHeaders)
+	recorder.RecordRESTResponse(restHeaders, restRequestTrace{})
 
 	graphQLHeaders := http.Header{}
 	graphQLHeaders.Set("x-ratelimit-limit", "5000")
 	graphQLHeaders.Set("x-ratelimit-remaining", "4990")
 	graphQLHeaders.Set("x-ratelimit-used", "10")
-	recorder.RecordGraphQLResponse(graphQLHeaders, nil)
+	recorder.RecordGraphQLResponse(graphQLHeaders, nil, graphQLRequestTrace{})
 
 	recorder.mu.Lock()
 	report := recorder.buildReportLocked()
@@ -109,7 +109,7 @@ func TestAPIUsageRecorderPrefersGraphQLCostFromResponse(t *testing.T) {
 				"resetAt": %q
 			}
 		}
-	}`, resetAt.Format(time.RFC3339))))
+	}`, resetAt.Format(time.RFC3339))), graphQLRequestTrace{})
 
 	recorder.mu.Lock()
 	report := recorder.buildReportLocked()
@@ -196,9 +196,89 @@ func TestAPIUsageRecorderUsesWarningWriter(t *testing.T) {
 	headers.Set("x-ratelimit-limit", "100")
 	headers.Set("x-ratelimit-used", "75")
 	headers.Set("x-ratelimit-remaining", "25")
-	recorder.RecordGraphQLResponse(headers, nil)
+	recorder.RecordGraphQLResponse(headers, nil, graphQLRequestTrace{})
 
 	if got := stderr.String(); !strings.Contains(got, "GitHub graphql API rate limit is 75% used") {
 		t.Fatalf("warning output = %q", got)
+	}
+}
+
+func TestAPIUsageRecorderWritesGraphQLTrace(t *testing.T) {
+	t.Parallel()
+
+	recorder := &apiUsageRecorder{}
+	var stderr bytes.Buffer
+	recorder.Reset(false)
+	recorder.SetTrace(true, &stderr)
+	resetAt := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+	headers := http.Header{}
+	headers.Set("x-ratelimit-used", "999")
+
+	recorder.RecordGraphQLResponse(headers, []byte(fmt.Sprintf(`{
+		"data": {
+			"ghHelperApiUsageRateLimit": {
+				"cost": 4,
+				"limit": 5000,
+				"nodeCount": 9,
+				"remaining": 4996,
+				"used": 104,
+				"resetAt": %q
+			}
+		}
+	}`, resetAt.Format(time.RFC3339))), graphQLRequestTrace{
+		OperationType: "query",
+		OperationName: "ReviewThreads",
+		StatusCode:    http.StatusOK,
+	})
+
+	got := stderr.String()
+	for _, want := range []string{
+		"api-usage: graphql request=1",
+		"operation=query",
+		"name=ReviewThreads",
+		"status=200",
+		"costSource=response",
+		"cost=4",
+		"nodeCount=9",
+		"used=104/5000",
+		"remaining=4996",
+		"resetIn=",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("trace output %q does not contain %q", got, want)
+		}
+	}
+}
+
+func TestAPIUsageRecorderWritesRESTTrace(t *testing.T) {
+	t.Parallel()
+
+	recorder := &apiUsageRecorder{}
+	var stderr bytes.Buffer
+	recorder.Reset(false)
+	recorder.SetTrace(true, &stderr)
+	headers := http.Header{}
+	headers.Set("x-ratelimit-limit", "5000")
+	headers.Set("x-ratelimit-used", "2")
+	headers.Set("x-ratelimit-remaining", "4998")
+
+	recorder.RecordRESTResponse(headers, restRequestTrace{
+		Method:     http.MethodPost,
+		Path:       "/repos/apstndb/gh-dev-tools/issues/63/comments",
+		StatusCode: http.StatusCreated,
+	})
+
+	got := stderr.String()
+	for _, want := range []string{
+		"api-usage: rest request=1",
+		"method=POST",
+		"path=/repos/apstndb/gh-dev-tools/issues/63/comments",
+		"status=201",
+		"used=2/5000",
+		"remaining=4998",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("trace output %q does not contain %q", got, want)
+		}
 	}
 }

@@ -100,3 +100,50 @@ func TestGraphQLRateLimitFromResponse(t *testing.T) {
 		t.Fatalf("graphQLRateLimitFromResponse() nodeCount = %d, want 42", rateLimit.NodeCount)
 	}
 }
+
+func TestGraphQLOperationTrace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		query         string
+		wantOperation string
+		wantName      string
+	}{
+		{
+			name:          "named query",
+			query:         `query ReviewThreads($owner: String!) { repository(owner: $owner, name: "repo") { id } }`,
+			wantOperation: "query",
+			wantName:      "ReviewThreads",
+		},
+		{
+			name:          "anonymous query with variables",
+			query:         `query($owner: String!) { viewer { login } }`,
+			wantOperation: "query",
+			wantName:      "anonymous",
+		},
+		{
+			name:          "short anonymous query",
+			query:         `{ viewer { login } }`,
+			wantOperation: "query",
+			wantName:      "anonymous",
+		},
+		{
+			name:          "named mutation",
+			query:         `mutation ResolveThread($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { id } } }`,
+			wantOperation: "mutation",
+			wantName:      "ResolveThread",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotOperation, gotName := graphQLOperationTrace(tt.query)
+			if gotOperation != tt.wantOperation || gotName != tt.wantName {
+				t.Fatalf("graphQLOperationTrace() = (%q, %q), want (%q, %q)", gotOperation, gotName, tt.wantOperation, tt.wantName)
+			}
+		})
+	}
+}

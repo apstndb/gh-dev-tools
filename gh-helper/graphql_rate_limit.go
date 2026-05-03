@@ -64,6 +64,26 @@ func isGraphQLQueryOperation(query string) bool {
 	return readGraphQLName(query, operationStart) == "query"
 }
 
+func graphQLOperationTrace(query string) (string, string) {
+	operationStart, ok := findGraphQLOperationStart(query)
+	if !ok {
+		return "", ""
+	}
+	if query[operationStart] == '{' {
+		return "query", "anonymous"
+	}
+
+	operationType := readGraphQLName(query, operationStart)
+	pos := skipGraphQLWhitespaceAndComments(query, operationStart+len(operationType))
+	if pos >= len(query) || query[pos] == '(' || query[pos] == '{' {
+		return operationType, "anonymous"
+	}
+	if isGraphQLNameRune(rune(query[pos])) {
+		return operationType, readGraphQLName(query, pos)
+	}
+	return operationType, "anonymous"
+}
+
 func graphQLRateLimitFromResponse(body []byte) (graphQLRateLimitTelemetry, bool) {
 	var response struct {
 		Data map[string]json.RawMessage `json:"data"`
@@ -145,6 +165,24 @@ func readGraphQLName(query string, pos int) string {
 		end++
 	}
 	return query[pos:end]
+}
+
+func skipGraphQLWhitespaceAndComments(query string, pos int) int {
+	for pos < len(query) {
+		r := rune(query[pos])
+		if unicode.IsSpace(r) || r == ',' {
+			pos++
+			continue
+		}
+		if r == '#' {
+			for pos < len(query) && query[pos] != '\n' {
+				pos++
+			}
+			continue
+		}
+		return pos
+	}
+	return pos
 }
 
 type graphQLScanner struct {

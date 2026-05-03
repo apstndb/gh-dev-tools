@@ -31,6 +31,18 @@ type APIUsageObserved struct {
 	GraphQLNodeCount               int `json:"graphqlNodeCount,omitempty"`
 }
 
+type graphQLRequestTrace struct {
+	OperationType string
+	OperationName string
+	StatusCode    int
+}
+
+type restRequestTrace struct {
+	Method     string
+	Path       string
+	StatusCode int
+}
+
 type APIUsageRateLimit struct {
 	Core    *APIUsageRateLimitResource `json:"core,omitempty"`
 	GraphQL *APIUsageRateLimitResource `json:"graphql,omitempty"`
@@ -71,22 +83,18 @@ type apiUsageRecorder struct {
 	warningThreshold float64
 	warningWritten   bool
 	warningWriter    io.Writer
+	trace            bool
+	traceWriter      io.Writer
 	structuredOutput bool
 }
 
 var commandAPIUsage = &apiUsageRecorder{}
 
 func startAPIUsageForCommand(cmd *cobra.Command, _ []string) {
-	if !apiUsage {
-		commandAPIUsage.Reset(false)
-		commandAPIUsage.SetWarningThreshold(rateLimitWarningThreshold)
-		commandAPIUsage.SetWarningWriter(cmd.ErrOrStderr())
-		return
-	}
-
-	commandAPIUsage.Reset(true)
+	commandAPIUsage.Reset(apiUsage)
 	commandAPIUsage.SetWarningThreshold(rateLimitWarningThreshold)
 	commandAPIUsage.SetWarningWriter(cmd.ErrOrStderr())
+	commandAPIUsage.SetTrace(apiUsageTrace, cmd.ErrOrStderr())
 }
 
 func printAPIUsageForTextCommand(cmd *cobra.Command, _ []string) {
@@ -159,6 +167,8 @@ func (r *apiUsageRecorder) Reset(enabled bool) {
 	r.warningThreshold = 0
 	r.warningWritten = false
 	r.warningWriter = os.Stderr
+	r.trace = false
+	r.traceWriter = os.Stderr
 	r.structuredOutput = false
 }
 
@@ -180,7 +190,19 @@ func (r *apiUsageRecorder) SetWarningWriter(writer io.Writer) {
 	r.warningWriter = writer
 }
 
-func (r *apiUsageRecorder) RecordGraphQLResponse(headers http.Header, body []byte) {
+func (r *apiUsageRecorder) SetTrace(enabled bool, writer io.Writer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.trace = enabled
+	if writer == nil {
+		r.traceWriter = os.Stderr
+		return
+	}
+	r.traceWriter = writer
+}
+
+func (r *apiUsageRecorder) RecordGraphQLResponse(headers http.Header, body []byte, trace graphQLRequestTrace) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -196,22 +218,27 @@ func (r *apiUsageRecorder) RecordGraphQLResponse(headers http.Header, body []byt
 		r.observed.GraphQLNodeCount += rateLimit.NodeCount
 		r.updateAfterFromGraphQLRateLimit(rateLimit)
 		r.lastGraphQLUsed = apiUsageIntPtr(rateLimit.Used)
+		r.writeGraphQLTraceLocked(trace, "response", &rateLimit, nil)
 		return
 	}
 	if used, ok := parseHeaderInt(headers, "x-ratelimit-used"); ok {
 		if previousUsed != nil && used > *previousUsed {
-			r.observed.GraphQLCost += used - *previousUsed
+			estimatedCost := used - *previousUsed
+			r.observed.GraphQLCost += estimatedCost
 			r.observed.GraphQLCostEstimatedRequests++
+			r.writeGraphQLTraceLocked(trace, "estimated", nil, &estimatedCost)
 		} else {
 			r.observed.GraphQLCostUnavailableRequests++
+			r.writeGraphQLTraceLocked(trace, "unavailable", nil, nil)
 		}
 		r.lastGraphQLUsed = apiUsageIntPtr(used)
 		return
 	}
 	r.observed.GraphQLCostUnavailableRequests++
+	r.writeGraphQLTraceLocked(trace, "unavailable", nil, nil)
 }
 
-func (r *apiUsageRecorder) RecordRESTResponse(headers http.Header) {
+func (r *apiUsageRecorder) RecordRESTResponse(headers http.Header, trace restRequestTrace) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -220,6 +247,7 @@ func (r *apiUsageRecorder) RecordRESTResponse(headers http.Header) {
 	}
 	r.observed.RESTRequests++
 	r.updateAfterFromHeaders("core", headers)
+	r.writeRESTTraceLocked(trace)
 }
 
 func (r *apiUsageRecorder) AddWarning(warning string) {
@@ -249,7 +277,7 @@ func (r *apiUsageRecorder) MarkStructuredOutputWritten() {
 }
 
 func (r *apiUsageRecorder) shouldTrackLocked() bool {
-	return r.enabled || r.warningThreshold > 0
+	return r.enabled || r.warningThreshold > 0 || r.trace
 }
 
 func (r *apiUsageRecorder) Finish() *APIUsageReport {
@@ -363,6 +391,102 @@ func (r *apiUsageRecorder) maybeWarnRateLimitLocked(resource string, rateLimit r
 		resetIn,
 	)
 	r.warningWritten = true
+}
+
+func (r *apiUsageRecorder) writeGraphQLTraceLocked(trace graphQLRequestTrace, costSource string, rateLimit *graphQLRateLimitTelemetry, estimatedCost *int) {
+	if !r.trace {
+		return
+	}
+
+	operation := trace.OperationType
+	if operation == "" {
+		operation = "unknown"
+	}
+	operationName := trace.OperationName
+	if operationName == "" {
+		operationName = "anonymous"
+	}
+
+	parts := []string{
+		"api-usage:",
+		"graphql",
+		fmt.Sprintf("request=%d", r.observed.GraphQLRequests),
+		fmt.Sprintf("operation=%s", operation),
+		fmt.Sprintf("name=%s", operationName),
+		fmt.Sprintf("status=%d", trace.StatusCode),
+		fmt.Sprintf("costSource=%s", costSource),
+	}
+	if rateLimit != nil {
+		parts = append(parts,
+			fmt.Sprintf("cost=%d", rateLimit.Cost),
+			fmt.Sprintf("nodeCount=%d", rateLimit.NodeCount),
+			fmt.Sprintf("used=%d/%d", rateLimit.Used, rateLimit.Limit),
+			fmt.Sprintf("remaining=%d", rateLimit.Remaining),
+		)
+		if rateLimit.ResetAt != "" {
+			parts = append(parts, "resetAt="+rateLimit.ResetAt)
+			if resetAt, err := time.Parse(time.RFC3339, rateLimit.ResetAt); err == nil {
+				parts = append(parts, "resetIn="+formatResetIn(time.Until(resetAt)))
+			}
+		}
+	} else {
+		if estimatedCost != nil {
+			parts = append(parts, fmt.Sprintf("estimatedCost=%d", *estimatedCost))
+		}
+		parts = appendRateLimitHeaderTraceParts(parts, resourceFromSnapshot(r.after, "graphql"))
+	}
+
+	r.writeTraceLineLocked(strings.Join(parts, " "))
+}
+
+func (r *apiUsageRecorder) writeRESTTraceLocked(trace restRequestTrace) {
+	if !r.trace {
+		return
+	}
+
+	method := trace.Method
+	if method == "" {
+		method = "UNKNOWN"
+	}
+	path := trace.Path
+	if path == "" {
+		path = "unknown"
+	}
+	parts := []string{
+		"api-usage:",
+		"rest",
+		fmt.Sprintf("request=%d", r.observed.RESTRequests),
+		fmt.Sprintf("method=%s", method),
+		fmt.Sprintf("path=%s", path),
+		fmt.Sprintf("status=%d", trace.StatusCode),
+	}
+	parts = appendRateLimitHeaderTraceParts(parts, resourceFromSnapshot(r.after, "core"))
+	r.writeTraceLineLocked(strings.Join(parts, " "))
+}
+
+func (r *apiUsageRecorder) writeTraceLineLocked(line string) {
+	writer := r.traceWriter
+	if writer == nil {
+		writer = os.Stderr
+	}
+	_, _ = fmt.Fprintln(writer, line)
+}
+
+func appendRateLimitHeaderTraceParts(parts []string, rateLimit *rateLimitResource) []string {
+	if rateLimit == nil || !rateLimit.Seen {
+		return parts
+	}
+	if rateLimit.Limit != 0 {
+		parts = append(parts, fmt.Sprintf("used=%d/%d", rateLimit.Used, rateLimit.Limit))
+	} else {
+		parts = append(parts, fmt.Sprintf("used=%d", rateLimit.Used))
+	}
+	parts = append(parts, fmt.Sprintf("remaining=%d", rateLimit.Remaining))
+	if rateLimit.Reset != 0 {
+		resetAt := time.Unix(rateLimit.Reset, 0).UTC()
+		parts = append(parts, "resetAt="+resetAt.Format(time.RFC3339), "resetIn="+formatResetIn(time.Until(resetAt)))
+	}
+	return parts
 }
 
 func observedBackend(observed APIUsageObserved) string {

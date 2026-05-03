@@ -252,6 +252,7 @@ var (
 	requestSummary            bool
 	noSubmit                  bool
 	apiUsage                  bool
+	apiUsageTrace             bool
 	rateLimitWarningThreshold float64
 )
 
@@ -283,6 +284,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("yaml", false, "Output YAML format (alias for --format=yaml)")
 	rootCmd.PersistentFlags().String("jq", "", "Apply jq query to filter/transform output")
 	rootCmd.PersistentFlags().BoolVar(&apiUsage, "api-usage", false, "Include REST/GraphQL API usage telemetry in command output")
+	rootCmd.PersistentFlags().BoolVar(&apiUsageTrace, "api-usage-trace", false, "Write one REST/GraphQL API usage line per GitHub request to stderr")
 	rootCmd.PersistentFlags().Float64Var(&rateLimitWarningThreshold, "rate-limit-warning-threshold", 0.5, "Warn to stderr when x-ratelimit-used divided by x-ratelimit-limit reaches this ratio (0 disables)")
 	rootCmd.PersistentPreRun = startAPIUsageForCommand
 	rootCmd.PersistentPostRun = printAPIUsageForTextCommand
