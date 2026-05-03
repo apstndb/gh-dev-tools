@@ -124,13 +124,23 @@ func findGraphQLOperationStart(query string) (int, bool) {
 
 func findNextGraphQLSelectionBrace(query string, start int) int {
 	scanner := graphQLScanner{input: query, pos: start}
+	depth := 0
 	for {
 		token, pos, ok := scanner.nextToken()
 		if !ok {
 			return -1
 		}
-		if token == "{" {
-			return pos
+		switch token {
+		case "(":
+			depth++
+		case ")":
+			if depth > 0 {
+				depth--
+			}
+		case "{":
+			if depth == 0 {
+				return pos
+			}
 		}
 	}
 }
@@ -209,7 +219,7 @@ func (s *graphQLScanner) nextToken() (string, int, bool) {
 			}
 			continue
 		}
-		if r == '{' || r == '}' {
+		if r == '{' || r == '}' || r == '(' || r == ')' {
 			pos := s.pos
 			s.pos++
 			return string(r), pos, true

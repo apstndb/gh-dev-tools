@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log/slog"
@@ -210,14 +211,16 @@ func (r *apiUsageRecorder) RecordGraphQLResponse(headers http.Header, body []byt
 		return
 	}
 	r.observed.GraphQLRequests++
-	if rateLimit, ok := graphQLRateLimitFromResponse(body); ok {
-		r.observed.GraphQLCost += rateLimit.Cost
-		r.observed.GraphQLCostKnownRequests++
-		r.observed.GraphQLNodeCount += rateLimit.NodeCount
-		r.updateAfterFromGraphQLRateLimit(rateLimit)
-		r.lastGraphQLUsed = apiUsageIntPtr(rateLimit.Used)
-		r.writeGraphQLTraceLocked(trace, "response", &rateLimit, nil)
-		return
+	if bytes.Contains(body, []byte(graphQLRateLimitAlias)) {
+		if rateLimit, ok := graphQLRateLimitFromResponse(body); ok {
+			r.observed.GraphQLCost += rateLimit.Cost
+			r.observed.GraphQLCostKnownRequests++
+			r.observed.GraphQLNodeCount += rateLimit.NodeCount
+			r.updateAfterFromGraphQLRateLimit(rateLimit)
+			r.lastGraphQLUsed = apiUsageIntPtr(rateLimit.Used)
+			r.writeGraphQLTraceLocked(trace, "response", &rateLimit, nil)
+			return
+		}
 	}
 	if used, ok := parseHeaderInt(headers, "x-ratelimit-used"); ok {
 		if previousUsed != nil && used > *previousUsed {
@@ -383,9 +386,8 @@ func (r *apiUsageRecorder) maybeWarnRateLimitLocked(resource string, rateLimit r
 	if writer == nil {
 		writer = os.Stderr
 	}
-	_, _ = fmt.Fprintf(
-		writer,
-		"warning: GitHub %s API rate limit is %.0f%% used (%d/%d used, %d remaining, resets at %s%s)\n",
+	warningMessage := fmt.Sprintf(
+		"GitHub %s API rate limit is %.0f%% used (%d/%d used, %d remaining, resets at %s%s)",
 		resource,
 		usedRatio*100,
 		rateLimit.Used,
@@ -394,6 +396,10 @@ func (r *apiUsageRecorder) maybeWarnRateLimitLocked(resource string, rateLimit r
 		resetAt,
 		resetIn,
 	)
+	if r.enabled {
+		r.warnings = append(r.warnings, warningMessage)
+	}
+	_, _ = fmt.Fprintln(writer, "warning: "+warningMessage)
 	if r.warningWritten == nil {
 		r.warningWritten = map[string]bool{}
 	}

@@ -54,6 +54,32 @@ query($owner: String!, $repo: String!) {
 	}
 }
 
+func TestInjectGraphQLRateLimitSkipsDirectiveArgumentObject(t *testing.T) {
+	t.Parallel()
+
+	query := `query($owner: String!, $repo: String!) @custom(config: {key: "val"}) {
+  repository(owner: $owner, name: $repo) {
+    id
+  }
+}`
+
+	got, ok := injectGraphQLRateLimit(query)
+	if !ok {
+		t.Fatal("injectGraphQLRateLimit() ok = false, want true")
+	}
+	injectedAt := strings.Index(got, graphQLRateLimitAlias)
+	repositoryAt := strings.Index(got, "repository")
+	if injectedAt < 0 {
+		t.Fatalf("injected query does not contain rateLimit alias:\n%s", got)
+	}
+	if injectedAt < repositoryAt {
+		t.Fatalf("rateLimit was injected before the root selection body:\n%s", got)
+	}
+	if strings.Contains(got, "@custom(config: {\n  "+graphQLRateLimitAlias) {
+		t.Fatalf("rateLimit was injected into directive arguments:\n%s", got)
+	}
+}
+
 func TestInjectGraphQLRateLimitSkipsMutation(t *testing.T) {
 	t.Parallel()
 

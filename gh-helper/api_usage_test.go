@@ -235,6 +235,36 @@ func TestAPIUsageRecorderWarnsPerResource(t *testing.T) {
 	}
 }
 
+func TestAPIUsageRecorderIncludesRateLimitWarningsInReport(t *testing.T) {
+	t.Parallel()
+
+	recorder := &apiUsageRecorder{}
+	var stderr bytes.Buffer
+	recorder.Reset(true)
+	recorder.SetWarningThreshold(0.5)
+	recorder.SetWarningWriter(&stderr)
+
+	headers := http.Header{}
+	headers.Set("x-ratelimit-limit", "100")
+	headers.Set("x-ratelimit-used", "75")
+	headers.Set("x-ratelimit-remaining", "25")
+	recorder.RecordGraphQLResponse(headers, nil, graphQLRequestTrace{})
+
+	recorder.mu.Lock()
+	report := recorder.buildReportLocked()
+	recorder.mu.Unlock()
+
+	if len(report.Warnings) != 1 {
+		t.Fatalf("Warnings length = %d, want 1: %#v", len(report.Warnings), report.Warnings)
+	}
+	if !strings.Contains(report.Warnings[0], "GitHub graphql API rate limit is 75% used") {
+		t.Fatalf("warning = %q", report.Warnings[0])
+	}
+	if got := stderr.String(); !strings.Contains(got, "warning: "+report.Warnings[0]) {
+		t.Fatalf("stderr warning %q does not contain structured warning %q", got, report.Warnings[0])
+	}
+}
+
 func TestAPIUsageRecorderSkipsGraphQLBodyParseForWarningOnly(t *testing.T) {
 	t.Parallel()
 
@@ -275,6 +305,40 @@ func TestAPIUsageRecorderSkipsGraphQLBodyParseForWarningOnly(t *testing.T) {
 	}
 	if report.RateLimit.GraphQL.Used == nil || *report.RateLimit.GraphQL.Used != 1 {
 		t.Fatalf("GraphQL used = %v, want header value 1", report.RateLimit.GraphQL.Used)
+	}
+}
+
+func TestAPIUsageRecorderSkipsGraphQLBodyParseWithoutAlias(t *testing.T) {
+	t.Parallel()
+
+	recorder := &apiUsageRecorder{}
+	recorder.Reset(true)
+
+	headers := http.Header{}
+	headers.Set("x-ratelimit-limit", "5000")
+	headers.Set("x-ratelimit-remaining", "4999")
+	headers.Set("x-ratelimit-used", "1")
+
+	recorder.RecordGraphQLResponse(headers, []byte(`{
+		"data": {
+			"repository": {
+				"id": "R_1"
+			}
+		}
+	}`), graphQLRequestTrace{})
+
+	recorder.mu.Lock()
+	report := recorder.buildReportLocked()
+	recorder.mu.Unlock()
+
+	if report.Observed.GraphQLRequests != 1 {
+		t.Fatalf("GraphQLRequests = %d, want 1", report.Observed.GraphQLRequests)
+	}
+	if report.Observed.GraphQLCostKnownRequests != 0 {
+		t.Fatalf("GraphQLCostKnownRequests = %d, want 0", report.Observed.GraphQLCostKnownRequests)
+	}
+	if report.Observed.GraphQLCostUnavailableRequests != 1 {
+		t.Fatalf("GraphQLCostUnavailableRequests = %d, want 1", report.Observed.GraphQLCostUnavailableRequests)
 	}
 }
 
