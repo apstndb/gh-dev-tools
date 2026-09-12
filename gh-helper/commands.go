@@ -54,7 +54,7 @@ func NewOperationalCommand(use, short, long string, runE func(*cobra.Command, []
 		Long:  long,
 		Type:  OperationalCommand,
 		RunE:  runE,
-		Flags: []string{"owner", "repo", "timeout", "json"}, // Standard operational flags
+		Flags: []string{"owner", "repo", "json"}, // Timeout is inherited from root; a local flag would shadow its value.
 	})
 	
 	// Operational commands silence usage help since most errors are runtime issues
